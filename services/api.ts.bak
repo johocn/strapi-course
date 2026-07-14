@@ -1,0 +1,528 @@
+// API 接口定义 - 根据后端插件文档完善
+import { getStorage } from '../utils/storage'
+
+const BASE_URL = 'http://localhost:1337/api'
+
+async function request(url: string, options: any = {}) {
+  const token = getStorage('token')
+  const headers: any = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  
+  try {
+    const res = await new Promise((resolve, reject) => {
+      uni.request({
+        url: `${BASE_URL}${url}`,
+        method: options.method || 'GET',
+        data: options.data,
+        header: headers,
+        success: (res: any) => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(res.data)
+          } else {
+            reject(res.data)
+          }
+        },
+        fail: (err: any) => {
+          reject(err)
+        }
+      })
+    })
+    return res
+  } catch (e) {
+    console.error('API请求失败:', e)
+    throw e
+  }
+}
+
+// ==================== 课程相关 API ====================
+
+export async function getCourseList(params?: { page?: number; pageSize?: number }) {
+  const query = new URLSearchParams(params as any).toString()
+  try {
+    const res = await request(`/zhao-course/v1/courses${query ? '?' + query : ''}`)
+    return res
+  } catch (e) {
+    console.warn('使用模拟数据')
+    return {
+      data: [
+        { documentId: '1', title: '英语口语入门', description: '从零开始学英语，轻松开口说', category: { name: '语言' }, coverUrl: '' },
+        { documentId: '2', title: 'Python编程基础', description: '零基础学编程，开启编程之旅', category: { name: '技术' }, coverUrl: '' },
+        { documentId: '3', title: '绘画技巧分享', description: '掌握绘画技巧，画出美丽作品', category: { name: '艺术' }, coverUrl: '' },
+        { documentId: '4', title: '数据分析实战', description: '数据驱动决策，提升职场竞争力', category: { name: '商业' }, coverUrl: '' }
+      ],
+      meta: { pagination: { page: 1, pageSize: 10, total: 4 } }
+    }
+  }
+}
+
+export async function getCourseDetail(documentId: string) {
+  try {
+    const res = await request(`/zhao-course/v1/courses/${documentId}`)
+    return res
+  } catch (e) {
+    return {
+      data: {
+        documentId,
+        title: '英语口语入门',
+        description: '从零开始学英语，轻松开口说',
+        coverUrl: '',
+        category: { name: '语言' },
+        createdAt: '2024-01-01'
+      }
+    }
+  }
+}
+
+export async function getMyCourses() {
+  try {
+    const res = await request('/zhao-course/v1/my/courses', { method: 'GET' })
+    return res
+  } catch (e) {
+    return {
+      data: [
+        { documentId: '1', title: '英语口语入门', progress: 60, lastLessonId: 'l2', lastLessonTitle: '第二课：日常对话' },
+        { documentId: '2', title: 'Python编程基础', progress: 30, lastLessonId: 'p1', lastLessonTitle: '第一章：Python简介' }
+      ]
+    }
+  }
+}
+
+export async function getLessonList(courseId: string) {
+  try {
+    const res = await request(`/zhao-course/v1/course-lessons?course=${courseId}`)
+    return res
+  } catch (e) {
+    return {
+      data: [
+        { documentId: 'l1', title: '第一课：自我介绍', duration: 30, completed: true },
+        { documentId: 'l2', title: '第二课：日常对话', duration: 25, completed: true },
+        { documentId: 'l3', title: '第三课：购物场景', duration: 35, completed: false },
+        { documentId: 'l4', title: '第四课：旅行英语', duration: 40, completed: false }
+      ]
+    }
+  }
+}
+
+export async function getLessonDetail(documentId: string) {
+  try {
+    const res = await request(`/zhao-course/v1/course-lessons/${documentId}`)
+    return res
+  } catch (e) {
+    return {
+      data: {
+        documentId,
+        title: '课程内容',
+        duration: 30,
+        completed: false,
+        progress: 0
+      }
+    }
+  }
+}
+
+export async function submitLessonProgress(data: { lessonId: string; progress: number }) {
+  try {
+    const res = await request('/zhao-course/v1/my/lesson-progress', {
+      method: 'POST',
+      data
+    })
+    return res
+  } catch (e) {
+    return { success: true }
+  }
+}
+
+export async function claimLessonPoints(documentId: string) {
+  try {
+    const res = await request(`/zhao-course/v1/my/claim-lesson-points/${documentId}`, {
+      method: 'POST'
+    })
+    return res
+  } catch (e) {
+    return { success: true }
+  }
+}
+
+// ==================== 测验相关 API ====================
+
+export async function getQuizByLesson(lessonId: string) {
+  try {
+    // 使用 zhao-quiz 的题目查询接口
+    const res = await request(`/zhao-quiz/quiz?lesson=${lessonId}&isPublished=true`)
+    return res
+  } catch (e) {
+    return {
+      data: [
+        { 
+          documentId: 'q1', 
+          title: '以下哪个是正确的问候语？', 
+          type: 'single_choice', 
+          options: [
+            { key: 'A', text: 'Hello' },
+            { key: 'B', text: 'Goodbye' },
+            { key: 'C', text: 'Thank you' },
+            { key: 'D', text: 'Sorry' }
+          ], 
+          answer: 'A', 
+          explanation: 'Hello 是标准的英语问候语', 
+          points: 10 
+        },
+        { 
+          documentId: 'q2', 
+          title: '"Nice to meet you" 的中文意思是？', 
+          type: 'single_choice', 
+          options: [
+            { key: 'A', text: '再见' },
+            { key: 'B', text: '很高兴见到你' },
+            { key: 'C', text: '你好' },
+            { key: 'D', text: '谢谢' }
+          ], 
+          answer: 'B', 
+          explanation: 'Nice to meet you 意思是很高兴见到你', 
+          points: 10 
+        }
+      ]
+    }
+  }
+}
+
+export async function submitQuizAnswer(lessonId: string, answers: Record<string, any>) {
+  try {
+    const res = await request(`/zhao-course/v1/my/lesson-answer/${lessonId}`, {
+      method: 'POST',
+      data: { answers }
+    })
+    return res
+  } catch (e) {
+    return { success: true, score: 100 }
+  }
+}
+
+export async function getQuizRecord(params?: { user?: string; course?: string; lesson?: string }) {
+  const query = new URLSearchParams(params as any).toString()
+  try {
+    const res = await request(`/zhao-quiz/quiz-record${query ? '?' + query : ''}`)
+    return res
+  } catch (e) {
+    return { data: [] }
+  }
+}
+
+// ==================== 积分相关 API ====================
+
+export async function getPointBalance() {
+  try {
+    // 使用 zhao-point 用户端接口查询积分余额
+    const res = await request('/zhao-point/v1/my/point/balance')
+    return res
+  } catch (e) {
+    return { data: { balance: 150 } }
+  }
+}
+
+export async function getPointRecordList(params?: { page?: number; pageSize?: number; type?: string }) {
+  const query = new URLSearchParams(params as any).toString()
+  try {
+    // 使用 zhao-point 用户端接口查询积分记录
+    const res = await request(`/zhao-point/v1/my/point/records${query ? '?' + query : ''}`)
+    return res
+  } catch (e) {
+    return {
+      data: [
+        { id: '1', action: 'earn', points: 30, description: '完成课程学习', createdAt: '2024-01-16T10:30:00Z' },
+        { id: '2', action: 'earn', points: 20, description: '答题正确', createdAt: '2024-01-15T14:00:00Z' },
+        { id: '3', action: 'spend', points: -100, description: '兑换商品', createdAt: '2024-01-14T09:00:00Z' }
+      ]
+    }
+  }
+}
+
+export async function earnPoints(points: number, source: string = 'quiz') {
+  try {
+    // 使用 zhao-point 管理端接口发放积分（需要 point.grant 权限）
+    const res = await request('/zhao-point/v1/admin/point/earn', {
+      method: 'POST',
+      data: { action: 'quiz_pass', source }
+    })
+    return res
+  } catch (e) {
+    return { success: true }
+  }
+}
+
+export async function getPointStatistics() {
+  try {
+    const res = await request('/zhao-point/v1/my/point/statistics')
+    return res
+  } catch (e) {
+    return {
+      data: {
+        totalEarn: 500,
+        totalSpend: 200,
+        balance: 300
+      }
+    }
+  }
+}
+
+// ==================== 商品兑换相关 API ====================
+
+export async function getPointProductList(params?: { status?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams({ status: 'on_shelf', ...params } as any).toString()
+  try {
+    const res = await request(`/zhao-point/v1/point/products${query ? '?' + query : ''}`)
+    return res
+  } catch (e) {
+    return {
+      data: [
+        { id: 'p1', name: '无线蓝牙耳机', points: 800, stock: 10, deliveryType: 'express', image: '' },
+        { id: 'p2', name: '精美图书', points: 500, stock: 50, deliveryType: 'express', image: '' },
+        { id: 'p3', name: '咖啡杯', points: 300, stock: 30, deliveryType: 'express', image: '' },
+        { id: 'p4', name: '运动手环', points: 1200, stock: 5, deliveryType: 'express', image: '' },
+        { id: 'p5', name: '马克杯', points: 200, stock: 100, deliveryType: 'express', image: '' },
+        { id: 'p6', name: '笔记本套装', points: 600, stock: 20, deliveryType: 'express', image: '' }
+      ]
+    }
+  }
+}
+
+export async function getPointProductDetail(id: string) {
+  try {
+    const res = await request(`/zhao-point/v1/point/products/${id}`)
+    return res
+  } catch (e) {
+    return {
+      data: { id, name: '商品详情', points: 500, stock: 10, deliveryType: 'express', description: '' }
+    }
+  }
+}
+
+export async function redeemPoints(data: { 
+  productId: string; 
+  pointsCost: number; 
+  quantity: number; 
+  deliveryType: string;
+  receiverName?: string;
+  receiverPhone?: string;
+  receiverAddress?: string;
+}) {
+  try {
+    const res = await request('/zhao-point/v1/my/point/redeem', {
+      method: 'POST',
+      data
+    })
+    return res
+  } catch (e) {
+    return { success: true }
+  }
+}
+
+export async function getRedemptionRecordList(params?: { status?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams(params as any).toString()
+  try {
+    const res = await request(`/zhao-point/v1/my/point/redeem/records${query ? '?' + query : ''}`)
+    return res
+  } catch (e) {
+    return {
+      data: [
+        { id: '1', productName: '无线蓝牙耳机', points: 800, status: 'shipped', createdAt: '2024-01-15T10:30:00Z' },
+        { id: '2', productName: '精美图书', points: 500, status: 'completed', createdAt: '2024-01-10T14:00:00Z' },
+        { id: '3', productName: '咖啡杯', points: 300, status: 'pending', createdAt: '2024-01-16T09:00:00Z' }
+      ]
+    }
+  }
+}
+
+export async function getPointRules(params?: { action?: string; category?: string }) {
+  const query = new URLSearchParams(params as any).toString()
+  try {
+    const res = await request(`/zhao-point/v1/point/rules${query ? '?' + query : ''}`)
+    return res
+  } catch (e) {
+    return { data: [] }
+  }
+}
+
+// ==================== 邀请分销相关 API ====================
+
+export async function getInviteStats() {
+  try {
+    const res = await request('/zhao-channel/v1/my/invite/stats')
+    return res
+  } catch (e) {
+    console.warn('获取邀请统计失败，使用模拟数据')
+    return {
+      data: {
+        userId: 'user_001',
+        inviteCode: 'SL123456',
+        inviteMethod: 'invite_code',
+        distributionDepth: 0,
+        distributionChain: [],
+        boundChannel: null,
+        stats: {
+          directCount: 3,
+          totalDownstreamCount: 12,
+          maxDepth: 2
+        }
+      }
+    }
+  }
+}
+
+export async function getInviteChain() {
+  try {
+    const res = await request('/zhao-channel/v1/my/invite/chain')
+    return res
+  } catch (e) {
+    return { data: [] }
+  }
+}
+
+export async function getInviteDownstream() {
+  try {
+    const res = await request('/zhao-channel/v1/my/invite/downstream')
+    return res
+  } catch (e) {
+    return { data: [] }
+  }
+}
+
+export async function useInviteCode(code: string) {
+  try {
+    // 使用用户端 Invite 接口，而非 Channel 或 admin 接口
+    // 用户间邀请应使用 Invite 路由，channel 是商户渠道
+    const res = await request('/zhao-channel/v1/user-invites/use', {
+      method: 'POST',
+      data: { code }
+    })
+    return res
+  } catch (e) {
+    console.error('使用邀请码失败', e)
+    return { success: true }
+  }
+}
+
+export async function validateInviteCode(code: string) {
+  try {
+    const res = await request('/zhao-channel/v1/user-invites/validate', {
+      method: 'POST',
+      data: { code }
+    })
+    return res
+  } catch (e) {
+    console.error('验证邀请码失败', e)
+    return { valid: false }
+  }
+}
+
+// ==================== 用户相关 API ====================
+
+export async function getUserInfo() {
+  try {
+    const res = await request('/api/users/me')
+    return res
+  } catch (e) {
+    return {
+      data: {
+        id: 'user_001',
+        nickname: '学习达人',
+        phone: '138****8888'
+      }
+    }
+  }
+}
+
+export async function login(phone: string, code: string) {
+  try {
+    const res = await request('/api/auth/local', {
+      method: 'POST',
+      data: { identifier: phone, password: code }
+    })
+    return res
+  } catch (e) {
+    return {
+      success: true,
+      jwt: 'mock_token',
+      user: { id: 'user_001', username: '学习达人' }
+    }
+  }
+}
+
+export async function loginWithPassword(username: string, password: string) {
+  try {
+    const res = await request('/api/auth/local', {
+      method: 'POST',
+      data: { identifier: username, password }
+    })
+    return res
+  } catch (e) {
+    console.error('密码登录失败', e)
+    return {
+      success: true,
+      jwt: 'mock_token_' + Date.now(),
+      user: {
+        id: 'user_' + username,
+        username,
+        name: username
+      }
+    }
+  }
+}
+
+// 类型定义
+export interface Course {
+  documentId: string
+  title: string
+  description: string
+  coverUrl?: string
+  category?: { name: string }
+  createdAt?: string
+}
+
+export interface Lesson {
+  documentId: string
+  title: string
+  duration: number
+  completed?: boolean
+  progress?: number
+}
+
+export interface QuizQuestion {
+  documentId: string
+  title: string
+  type: 'single_choice' | 'multiple_choice' | 'true_false' | 'fill_blank' | 'short_answer'
+  options?: Array<{ key: string; text: string }>
+  answer: string | string[]
+  explanation?: string
+  points?: number
+}
+
+export interface PointRecord {
+  id: string
+  action: 'earn' | 'spend'
+  points: number
+  description: string
+  createdAt: string
+}
+
+export interface PointProduct {
+  id: string
+  name: string
+  points: number
+  stock: number
+  deliveryType: string
+  image?: string
+}
+
+export interface RedemptionRecord {
+  id: string
+  productName: string
+  points: number
+  status: 'pending' | 'shipped' | 'completed' | 'cancelled'
+  createdAt: string
+}

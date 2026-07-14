@@ -1,0 +1,150 @@
+﻿{
+	"pages": [
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "全部课程"
+			}
+		},
+		{
+			"path": "pages/login/login",
+			"style": {
+				"navigationBarTitleText": "登录",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/register/register",
+			"style": {
+				"navigationBarTitleText": "注册",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/forgot-password/forgot-password",
+			"style": {
+				"navigationBarTitleText": "忘记密码",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/guide/guide",
+			"style": {
+				"navigationBarTitleText": "新手引导",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/course-detail/course-detail",
+			"style": {
+				"navigationBarTitleText": "课程详情"
+			}
+		},
+		{
+			"path": "pages/my-course/my-course",
+			"style": {
+				"navigationBarTitleText": "我的课程"
+			}
+		},
+		{
+			"path": "pages/video-player/video-player",
+			"style": {
+				"navigationBarTitleText": "课程学习"
+			}
+		},
+		{
+			"path": "pages/quiz/quiz",
+			"style": {
+				"navigationBarTitleText": "答题"
+			}
+		},
+		{
+			"path": "pages/exchange/exchange",
+			"style": {
+				"navigationBarTitleText": "积分兑换"
+			}
+		},
+		{
+			"path": "pages/points-record/points-record",
+			"style": {
+				"navigationBarTitleText": "积分记录"
+			}
+		},
+		{
+			"path": "pages/redeem-record/redeem-record",
+			"style": {
+				"navigationBarTitleText": "兑换记录"
+			}
+		},
+		{
+			"path": "pages/profile/profile",
+			"style": {
+				"navigationBarTitleText": "我的"
+			}
+		},
+		{
+			"path": "pages/sign-in/sign-in",
+			"style": {
+				"navigationBarTitleText": "每日签到"
+			}
+		},
+		{
+			"path": "pages/tasks/tasks",
+			"style": {
+				"navigationBarTitleText": "任务中心"
+			}
+		},
+		{
+			"path": "pages/pickup-location/list",
+			"style": {
+				"navigationBarTitleText": "选择自提点",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/pickup-location/detail",
+			"style": {
+				"navigationBarTitleText": "自提点详情",
+				"navigationStyle": "custom"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "圣麟教育",
+		"navigationBarBackgroundColor": "#667eea",
+		"backgroundColor": "#f5f5f5"
+	},
+	"tabBar": {
+		"color": "#999999",
+		"selectedColor": "#667eea",
+		"borderStyle": "black",
+		"backgroundColor": "#ffffff",
+		"list": [
+			{
+				"pagePath": "pages/index/index",
+				"text": "全部课程",
+				"iconPath": "static/logo.png",
+				"selectedIconPath": "static/logo.png"
+			},
+			{
+				"pagePath": "pages/my-course/my-course",
+				"text": "我的课程",
+				"iconPath": "static/logo.png",
+				"selectedIconPath": "static/logo.png"
+			},
+			{
+				"pagePath": "pages/exchange/exchange",
+				"text": "积分兑换",
+				"iconPath": "static/logo.png",
+				"selectedIconPath": "static/logo.png"
+			},
+			{
+				"pagePath": "pages/profile/profile",
+				"text": "我的",
+				"iconPath": "static/logo.png",
+				"selectedIconPath": "static/logo.png"
+			}
+		]
+	}
+}

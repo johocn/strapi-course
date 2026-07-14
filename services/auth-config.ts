@@ -1,0 +1,188 @@
+/**
+ * 认证配置模块
+ * 从后端获取认证配置，决定前端使用哪种登录方式
+ */
+import { request } from './api'
+import { SITE_DOMAIN } from '../utils/env'
+import { applyTheme, ThemeConfig } from '../utils/theme'
+
+export interface AuthConfig {
+  // 站点信息
+  siteName: string
+  siteDescription: string
+  logo: string
+  favicon: string
+  
+  // 微信分享
+  shareTitle: string
+  shareDescription: string
+  shareImage: string
+  sharePath: string
+  
+  // 认证配置
+  mode: 'local' | 'third' | 'sso'
+  authMode: 'local' | 'third' | 'sso'
+  methods: Array<'password' | 'sms' | 'wechat' | 'sso'>
+  ssoLoginUrl: string | null
+  wechatOfficialAccountEnabled: boolean
+  wechatMiniProgramEnabled: boolean
+  wechatOpenPlatformEnabled: boolean
+  alipayEnabled: boolean
+  douyinEnabled: boolean
+  thirdPartyEnabled: boolean
+  ssoEnabled: boolean
+  registerEnabled: boolean
+  inviteCodeRequired: boolean
+  
+  // 功能开关（公开）
+  pointsEnabled: boolean
+  signInPoints: number
+  coursePreviewEnabled: boolean
+  lessonProgressEnabled: boolean
+  channelInviteEnabled: boolean
+  allowCrossChannel: boolean
+
+  // 主题配置
+  theme?: ThemeConfig
+}
+
+let cachedConfig: AuthConfig | null = null
+// 接口不可访问时的弹窗节流（30秒内只提示一次）
+let lastUnavailableNotify = 0
+const UNAVAILABLE_NOTIFY_INTERVAL = 30 * 1000
+
+/**
+ * 提示用户后端服务不可访问
+ */
+function notifyServiceUnavailable() {
+  const now = Date.now()
+  if (now - lastUnavailableNotify < UNAVAILABLE_NOTIFY_INTERVAL) return
+  lastUnavailableNotify = now
+  try {
+    uni.showModal({
+      title: '服务不可用',
+      content: '无法连接到服务器（/api/zhao-common/v1/public/config），请检查后端 Strapi 服务是否已启动。',
+      showCancel: false,
+      confirmText: '我知道了'
+    })
+  } catch {
+    // 非 uni 环境忽略
+  }
+}
+
+const DEFAULT_CONFIG: AuthConfig = {
+  siteName: '',
+  siteDescription: '',
+  logo: '',
+  favicon: '',
+  shareTitle: '',
+  shareDescription: '',
+  shareImage: '',
+  sharePath: '/pages/index/index',
+  mode: 'local',
+  authMode: 'local',
+  methods: ['password'],
+  ssoLoginUrl: null,
+  wechatOfficialAccountEnabled: false,
+  wechatMiniProgramEnabled: false,
+  wechatOpenPlatformEnabled: false,
+  alipayEnabled: false,
+  douyinEnabled: false,
+  thirdPartyEnabled: false,
+  ssoEnabled: false,
+  registerEnabled: true,
+  inviteCodeRequired: false,
+  pointsEnabled: true,
+  signInPoints: 10,
+  coursePreviewEnabled: true,
+  lessonProgressEnabled: true,
+  channelInviteEnabled: true,
+  allowCrossChannel: false,
+}
+
+/**
+ * 获取认证配置（带内存缓存，应用生命周期内只请求一次）
+ * 从 /zhao-common/v1/public/config 获取站点配置+认证配置+功能开关
+ */
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  if (cachedConfig) return cachedConfig
+
+  try {
+    const res = await request(`/zhao-common/v1/public/config?domain=${encodeURIComponent(SITE_DOMAIN)}`) as any
+    const data = res?.data ?? res
+
+    const config: AuthConfig = {
+      // 站点信息
+      siteName: data.site?.siteName ?? DEFAULT_CONFIG.siteName,
+      siteDescription: data.site?.siteDescription ?? DEFAULT_CONFIG.siteDescription,
+      logo: data.site?.logo ?? DEFAULT_CONFIG.logo,
+      favicon: data.site?.favicon ?? DEFAULT_CONFIG.favicon,
+      shareTitle: data.site?.shareTitle ?? DEFAULT_CONFIG.shareTitle,
+      shareDescription: data.site?.shareDescription ?? DEFAULT_CONFIG.shareDescription,
+      shareImage: data.site?.shareImage ?? DEFAULT_CONFIG.shareImage,
+      sharePath: data.site?.sharePath ?? DEFAULT_CONFIG.sharePath,
+
+      // 认证配置
+      mode: data.auth?.mode ?? DEFAULT_CONFIG.mode,
+      authMode: data.auth?.mode ?? DEFAULT_CONFIG.authMode,
+      methods: data.auth?.methods ?? DEFAULT_CONFIG.methods,
+      ssoLoginUrl: data.auth?.ssoLoginUrl ?? DEFAULT_CONFIG.ssoLoginUrl,
+      wechatOfficialAccountEnabled: data.auth?.wechatOfficialAccountEnabled ?? DEFAULT_CONFIG.wechatOfficialAccountEnabled,
+      wechatMiniProgramEnabled: data.auth?.wechatMiniProgramEnabled ?? DEFAULT_CONFIG.wechatMiniProgramEnabled,
+      wechatOpenPlatformEnabled: data.auth?.wechatOpenPlatformEnabled ?? DEFAULT_CONFIG.wechatOpenPlatformEnabled,
+      alipayEnabled: data.auth?.alipayEnabled ?? DEFAULT_CONFIG.alipayEnabled,
+      douyinEnabled: data.auth?.douyinEnabled ?? DEFAULT_CONFIG.douyinEnabled,
+      thirdPartyEnabled: data.auth?.thirdPartyEnabled ?? DEFAULT_CONFIG.thirdPartyEnabled,
+      ssoEnabled: data.auth?.ssoEnabled ?? DEFAULT_CONFIG.ssoEnabled,
+      registerEnabled: data.auth?.registerEnabled ?? DEFAULT_CONFIG.registerEnabled,
+      inviteCodeRequired: data.auth?.inviteCodeRequired ?? DEFAULT_CONFIG.inviteCodeRequired,
+
+      // 功能开关
+      pointsEnabled: data.featureFlags?.points !== false,
+      signInPoints: data.points?.signInPoints ?? DEFAULT_CONFIG.signInPoints,
+      coursePreviewEnabled: data.featureFlags?.coursePreviewEnabled ?? DEFAULT_CONFIG.coursePreviewEnabled,
+      lessonProgressEnabled: data.featureFlags?.lessonProgressEnabled ?? DEFAULT_CONFIG.lessonProgressEnabled,
+      channelInviteEnabled: data.featureFlags?.channelInviteEnabled ?? DEFAULT_CONFIG.channelInviteEnabled,
+      allowCrossChannel: data.featureFlags?.allowCrossChannel ?? DEFAULT_CONFIG.allowCrossChannel,
+
+      // 主题配置
+      theme: data.theme,
+    }
+
+    cachedConfig = config
+
+    // 应用主题（成功获取 config 后调用）
+    if (config.theme) {
+      applyTheme(config.theme)
+    }
+
+    return config
+  } catch (e) {
+    console.warn('[auth-config] 获取认证配置失败，使用默认配置:', e)
+    notifyServiceUnavailable()
+    return { ...DEFAULT_CONFIG, methods: [...DEFAULT_CONFIG.methods] }
+  }
+}
+
+/**
+ * 清除缓存（用于强制刷新）
+ */
+export function clearAuthConfigCache(): void {
+  cachedConfig = null
+}
+
+/**
+ * 从 storage 读取缓存的认证配置（同步）
+ * App onLaunch 时已将配置存入 storage
+ */
+export function getStoredAuthConfig(): AuthConfig | null {
+  try {
+    const stored = uni.getStorageSync('authConfig')
+    if (stored) {
+      return JSON.parse(stored) as AuthConfig
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
