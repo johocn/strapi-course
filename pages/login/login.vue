@@ -259,8 +259,12 @@
         <text class="guest-text">游客体验</text>
       </view>
 
-      <view v-if="registerEnabled" class="tips">
-        <text class="tip-text">未注册用户将自动注册并登录</text>
+      <view v-if="registerEnabled" class="register-link" @click="goToRegister">
+        <text>没有账号？<text class="link">立即注册</text></text>
+      </view>
+
+      <view v-if="registerEnabled && loginType === 'sms'" class="tips">
+        <text class="tip-text">短信登录未注册用户将自动注册并登录</text>
       </view>
     </view>
 
@@ -586,6 +590,11 @@ function enterAsGuest() {
       }
     }
   })
+}
+
+// 跳转注册页
+function goToRegister() {
+  uni.navigateTo({ url: '/pages/register/register' })
 }
 
 // === 主登录处理 ===
@@ -950,6 +959,9 @@ onUnmounted(() => {
 .login-btn.disabled { background: #ccc; }
 .guest-entry { width: 100%; height: 80rpx; display: flex; align-items: center; justify-content: center; background: transparent; border: 2rpx solid rgba(255, 255, 255, 0.5); border-radius: 40rpx; margin-top: 20rpx; }
 .guest-text { font-size: 28rpx; color: rgba(255, 255, 255, 0.8); }
+.register-link { text-align: center; margin-top: 30rpx; }
+.register-link text { font-size: 26rpx; color: #999; }
+.register-link .link { color: #667eea; font-weight: bold; }
 .tips { text-align: center; margin-top: 30rpx; }
 .tip-text { font-size: 24rpx; color: #999; }
 .login-footer { margin-top: 60rpx; }

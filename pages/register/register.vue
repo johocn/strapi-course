@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { register } from '../../services/api'
 import { setLoginState } from '../../utils/storage'
 import { getStoredAuthConfig } from '../../services/auth-config'
@@ -122,6 +122,17 @@ const registerForm = ref({
   password: '',
   confirmPassword: '',
   inviteCode: uni.getStorageSync('inviteCode') || ''
+})
+
+// 扫码进入时从 URL hash 读取渠道邀请码
+onMounted(() => {
+  const hashQuery = window.location.hash.split('?')[1] || ''
+  const hashParams = new URLSearchParams(hashQuery)
+  const invitecode = hashParams.get('invitecode')
+  if (invitecode) {
+    uni.setStorageSync('channelInviteCode', invitecode)
+    registerForm.value.inviteCode = invitecode
+  }
 })
 
 const canRegister = computed(() => {
