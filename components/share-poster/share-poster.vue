@@ -264,7 +264,6 @@ const drawPoster = async () => {
   ctx.fillStyle = '#999999'
   ctx.fillText('扫码立即体验', width / 2, y)
   
-  ctx.draw()
   generated.value = true
   // #endif
   
