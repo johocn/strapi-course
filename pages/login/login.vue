@@ -21,7 +21,7 @@
     </view>
 
     <!-- third 模式 + 微信小程序环境：自动登录中 -->
-    <view v-if="authMode === 'third' && isWechat && !isH5Wechat" class="login-form">
+    <view v-if="wechatLoginEnabled && isWechat && !isH5Wechat" class="login-form">
       <view class="form-title">
         <text>{{ autoLoginDone ? '登录成功' : '正在自动登录...' }}</text>
       </view>
@@ -59,7 +59,7 @@
     </view>
 
     <!-- third 模式 + H5 微信浏览器环境：选择登录方式 -->
-    <view v-else-if="authMode === 'third' && isH5Wechat" class="login-form">
+    <view v-else-if="wechatLoginEnabled && isH5Wechat" class="login-form">
       <view class="form-title">
         <text>微信快捷登录</text>
       </view>
@@ -259,7 +259,7 @@
         <text class="guest-text">游客体验</text>
       </view>
 
-      <view v-if="registerEnabled" class="register-link" @click="goToRegister">
+      <view  class="register-link" @click="goToRegister">
         <text>没有账号？<text class="link">立即注册</text></text>
       </view>
 
@@ -269,7 +269,7 @@
     </view>
 
     <!-- PC 扫码登录（third 模式 + 非微信 H5 环境 + 开放平台已配置） -->
-    <view v-if="authMode === 'third' && isH5 && !isH5Wechat && openPlatformEnabled" class="login-form" style="margin-top: 30rpx;">
+    <view v-if="wechatLoginEnabled && isH5 && !isH5Wechat && openPlatformEnabled" class="login-form" style="margin-top: 30rpx;">
       <view class="form-title">
         <text>微信扫码登录</text>
       </view>
@@ -351,6 +351,12 @@ import { getQrconnectUrl as fetchQrconnectUrl, redirectToOpenPlatformAuth as doR
 const authConfig = ref<AuthConfig | null>(null)
 const authMode = computed(() => authConfig.value?.mode ?? 'local')
 const registerEnabled = computed(() => authConfig.value?.registerEnabled !== false)
+// 微信登录是否启用（综合判断：methods 含 wechat 或 thirdPartyEnabled 或 mode=third）
+const wechatLoginEnabled = computed(() =>
+  authConfig.value?.methods?.includes('wechat') === true
+  || authConfig.value?.thirdPartyEnabled === true
+  || authMode.value === 'third'
+)
 
 // 检测运行环境
 const isWechat = computed(() => {
