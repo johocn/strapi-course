@@ -35,7 +35,7 @@ export async function redirectToWechatAuth(scope: string = 'snsapi_base', state?
   const baseUrl = window.location.origin
   const redirectUri = `${baseUrl}/api/zhao-third/v1/wechat/callback`
 
-  const finalState = state || encodeURIComponent(getCurrentPagePath())
+  const finalState = state || getCurrentPagePath()
 
   const res = await request(`/zhao-third/v1/third/auth-url?domain=${encodeURIComponent(SITE_DOMAIN)}`, {
     method: 'POST',
