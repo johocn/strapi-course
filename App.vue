@@ -36,9 +36,30 @@ export default {
     // 1. 处理邀请链接参数（优先级最高）
     handleInviteLink()
 
-    // 2. 首次访问检查引导页
-    const guideCompleted = uni.getStorageSync('guideCompleted')
-    if (!guideCompleted) {
+    // 2. 引导页判断（仅首次未登录且无完成标记时显示）
+    //    - H5 携带业务参数（token/code/inviteCode 等）时跳过，避免打断登录回调/邀请/分享进入
+    //    - 已登录（有 token）或已完成引导（guideCompleted==='true'）时跳过
+    const guideCompleted = uni.getStorageSync('guideCompleted') === 'true'
+    const hasToken = !!uni.getStorageSync('token')
+
+    let shouldSkipGuide = hasToken || guideCompleted
+    // #ifdef H5
+    if (!shouldSkipGuide && typeof window !== 'undefined' && window.location) {
+      const hashQuery = window.location.hash.split('?')[1] || ''
+      const searchParams = new URLSearchParams(window.location.search)
+      const hashParams = new URLSearchParams(hashQuery)
+      // 携带以下任一参数视为"带目的而来"，跳过引导页
+      const skipParams = ['token', 'code', 'inviteCode', 'channelInviteCode', 'inviterId', 'skipGuide', 'state']
+      for (const p of skipParams) {
+        if (searchParams.get(p) || hashParams.get(p)) {
+          shouldSkipGuide = true
+          break
+        }
+      }
+    }
+    // #endif
+
+    if (!shouldSkipGuide) {
       uni.reLaunch({ url: '/pages/guide/guide' })
       return
     }

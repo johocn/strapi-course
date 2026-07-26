@@ -1,4 +1,4 @@
-﻿{
+{
 	"pages": [
 		{
 			"path": "pages/index/index",
@@ -24,6 +24,13 @@
 			"path": "pages/forgot-password/forgot-password",
 			"style": {
 				"navigationBarTitleText": "忘记密码",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/auth-callback/auth-callback",
+			"style": {
+				"navigationBarTitleText": "登录中",
 				"navigationStyle": "custom"
 			}
 		},
@@ -124,26 +131,26 @@
 			{
 				"pagePath": "pages/index/index",
 				"text": "全部课程",
-				"iconPath": "static/logo.png",
-				"selectedIconPath": "static/logo.png"
+				"iconPath": "static/tab-course.png",
+				"selectedIconPath": "static/tab-course-active.png"
 			},
 			{
 				"pagePath": "pages/my-course/my-course",
 				"text": "我的课程",
-				"iconPath": "static/logo.png",
-				"selectedIconPath": "static/logo.png"
+				"iconPath": "static/tab-mycourse.png",
+				"selectedIconPath": "static/tab-mycourse-active.png"
 			},
 			{
 				"pagePath": "pages/exchange/exchange",
 				"text": "积分兑换",
-				"iconPath": "static/logo.png",
-				"selectedIconPath": "static/logo.png"
+				"iconPath": "static/tab-exchange.png",
+				"selectedIconPath": "static/tab-exchange-active.png"
 			},
 			{
 				"pagePath": "pages/profile/profile",
 				"text": "我的",
-				"iconPath": "static/logo.png",
-				"selectedIconPath": "static/logo.png"
+				"iconPath": "static/tab-profile.png",
+				"selectedIconPath": "static/tab-profile-active.png"
 			}
 		]
 	}
