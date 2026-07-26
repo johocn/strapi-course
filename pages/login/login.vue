@@ -540,17 +540,28 @@ function h5WechatFullLogin() {
 
 // === SSO 登录跳转 ===
 function redirectToSso() {
-  const ssoUrl = authConfig.value?.ssoLoginUrl
-  if (ssoUrl) {
-    // #ifdef H5
-    window.location.href = ssoUrl
-    // #endif
-    // #ifndef H5
-    uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })
-    // #endif
-  } else {
+  const ssoLoginUrl = authConfig.value?.ssoLoginUrl
+  if (!ssoLoginUrl) {
     uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
+    return
   }
+  // #ifdef H5
+  const returnUrl = encodeURIComponent(
+    window.location.origin + '/#/pages/auth-callback/auth-callback'
+  )
+  const appCode = authConfig.value?.ssoAppCode || 'course'
+  const inviteCode = channelInviteCode.value || ''
+  const params = new URLSearchParams({
+    app_code: appCode,
+    return_url: returnUrl,
+  })
+  if (inviteCode) params.append('invite_code', inviteCode)
+  const sep = ssoLoginUrl.includes('?') ? '&' : '?'
+  window.location.href = `${ssoLoginUrl}${sep}${params.toString()}`
+  // #endif
+  // #ifndef H5
+  uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })
+  // #endif
 }
 
 // === 开放平台扫码登录（跳转模式） ===

@@ -29,6 +29,7 @@ async function handleOAuthCallback() {
 
     const token = urlParams.get('token') || hashParams.get('token')
     const userId = urlParams.get('userId') || hashParams.get('userId')
+    const userEncoded = urlParams.get('user') || hashParams.get('user')
     const isNew = urlParams.get('isNew') || hashParams.get('isNew')
     const state = urlParams.get('state') || hashParams.get('state')
     const error = urlParams.get('error') || hashParams.get('error')
@@ -43,7 +44,15 @@ async function handleOAuthCallback() {
 
     if (token) {
       setToken(token)
-      if (userId) {
+      // 优先解析 user 参数（SSO 登录/注册回跳携带的完整用户对象）
+      if (userEncoded) {
+        try {
+          const user = JSON.parse(decodeURIComponent(atob(userEncoded)))
+          setUser(user)
+        } catch {
+          if (userId) setUser({ id: Number(userId) })
+        }
+      } else if (userId) {
         setUser({ id: Number(userId) })
       }
       statusText.value = '登录成功，正在跳转...'

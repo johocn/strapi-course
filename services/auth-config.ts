@@ -24,6 +24,7 @@ export interface AuthConfig {
   authMode: 'local' | 'third' | 'sso'
   methods: Array<'password' | 'sms' | 'wechat' | 'sso'>
   ssoLoginUrl: string | null
+  ssoAppCode: string
   wechatOfficialAccountEnabled: boolean
   wechatMiniProgramEnabled: boolean
   wechatOpenPlatformEnabled: boolean
@@ -83,6 +84,7 @@ const DEFAULT_CONFIG: AuthConfig = {
   authMode: 'local',
   methods: ['password'],
   ssoLoginUrl: null,
+  ssoAppCode: 'course',
   wechatOfficialAccountEnabled: false,
   wechatMiniProgramEnabled: false,
   wechatOpenPlatformEnabled: false,
@@ -127,6 +129,7 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
       authMode: data.auth?.mode ?? DEFAULT_CONFIG.authMode,
       methods: data.auth?.methods ?? DEFAULT_CONFIG.methods,
       ssoLoginUrl: data.auth?.ssoLoginUrl ?? DEFAULT_CONFIG.ssoLoginUrl,
+      ssoAppCode: data.auth?.ssoAppCode ?? DEFAULT_CONFIG.ssoAppCode,
       wechatOfficialAccountEnabled: data.auth?.wechatOfficialAccountEnabled ?? DEFAULT_CONFIG.wechatOfficialAccountEnabled,
       wechatMiniProgramEnabled: data.auth?.wechatMiniProgramEnabled ?? DEFAULT_CONFIG.wechatMiniProgramEnabled,
       wechatOpenPlatformEnabled: data.auth?.wechatOpenPlatformEnabled ?? DEFAULT_CONFIG.wechatOpenPlatformEnabled,
