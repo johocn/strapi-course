@@ -552,9 +552,9 @@ function redirectToSso() {
     return
   }
   // #ifdef H5
-  const returnUrl = encodeURIComponent(
-    window.location.origin + '/#/pages/auth-callback/auth-callback'
-  )
+  // return_url 不再手动 encodeURIComponent，URLSearchParams 会自动编码一次；
+  // SSO 登录页/回调页用 decodeURIComponent 解码一次即可，避免双重编码
+  const returnUrl = window.location.origin + '/#/pages/auth-callback/auth-callback'
   const appCode = authConfig.value?.ssoAppCode || 'course'
   const inviteCode = channelInviteCode.value || ''
   const params = new URLSearchParams({
@@ -562,6 +562,14 @@ function redirectToSso() {
     return_url: returnUrl,
   })
   if (inviteCode) params.append('invite_code', inviteCode)
+  // 透传调试参数 debugWx，便于本地端到端模拟微信环境
+  if (typeof window !== 'undefined') {
+    const searchParams = new URLSearchParams(window.location.search)
+    const hashQuery = window.location.hash.split('?')[1] || ''
+    const hashParams = new URLSearchParams(hashQuery)
+    const debugWx = searchParams.get('debugWx') || hashParams.get('debugWx')
+    if (debugWx === '1') params.append('debugWx', '1')
+  }
   const sep = ssoLoginUrl.includes('?') ? '&' : '?'
   window.location.href = `${ssoLoginUrl}${sep}${params.toString()}`
   // #endif
