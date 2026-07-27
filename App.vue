@@ -49,7 +49,7 @@ export default {
       const searchParams = new URLSearchParams(window.location.search)
       const hashParams = new URLSearchParams(hashQuery)
       // 携带以下任一参数视为"带目的而来"，跳过引导页
-      const skipParams = ['token', 'code', 'inviteCode', 'channelInviteCode', 'inviterId', 'skipGuide', 'state']
+      const skipParams = ['token', 'code', 'inviteCode', 'channelInviteCode', 'inviterId', 'skipGuide', 'state', 'debugWx']
       for (const p of skipParams) {
         if (searchParams.get(p) || hashParams.get(p)) {
           shouldSkipGuide = true
