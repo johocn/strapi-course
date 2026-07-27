@@ -522,6 +522,12 @@ onMounted(async () => {
       // 开放平台未配置，忽略
     }
   }
+
+  // SSO 模式 + 微信环境 → 自动跳转 SSO 登录页（无需用户点击）
+  if (isWechatBrowser() && authConfig.value?.mode === 'sso' && authConfig.value?.ssoLoginUrl) {
+    redirectToSso()
+    return
+  }
   // #endif
 })
 
