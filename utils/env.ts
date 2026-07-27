@@ -76,10 +76,13 @@ export function isWechatBrowser(): boolean {
     const href = window.location.href
     if (href.includes('servicewechat.com')) return true
   }
-  // 3. 地址URL强制调试白名单：?debugWx=1
+  // 3. 地址URL强制调试白名单：?debugWx=1（同时检查 search 和 hash query，兼容 hash 路由）
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search)
     if (params.get('debugWx') === '1') return true
+    const hashQuery = window.location.hash.split('?')[1] || ''
+    const hashParams = new URLSearchParams(hashQuery)
+    if (hashParams.get('debugWx') === '1') return true
   }
   // 4. 开发环境本地代理域名白名单（hosts 指向 127.0.0.1 + 公众号后台配 JS 安全域名）
   if (typeof window !== 'undefined') {
