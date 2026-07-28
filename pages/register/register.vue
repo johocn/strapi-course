@@ -110,7 +110,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { register } from '../../services/api'
 import { setLoginState } from '../../utils/storage'
-import { getStoredAuthConfig } from '../../services/auth-config'
+import { getStoredAuthConfig, fetchAuthConfig } from '../../services/auth-config'
 
 const siteConfig = getStoredAuthConfig()
 
@@ -125,7 +125,8 @@ const registerForm = ref({
 })
 
 // 扫码进入时从 URL hash 读取渠道邀请码
-onMounted(() => {
+// SSO 模式下直接跳转 SSO 登录页，携带 invite_code 和 app_code 参数，减少中间手动环节
+onMounted(async () => {
   const hashQuery = window.location.hash.split('?')[1] || ''
   const hashParams = new URLSearchParams(hashQuery)
   const invitecode = hashParams.get('invitecode')
@@ -133,6 +134,44 @@ onMounted(() => {
     uni.setStorageSync('channelInviteCode', invitecode)
     registerForm.value.inviteCode = invitecode
   }
+
+  // #ifdef H5
+  // SSO 模式：直接跳转 SSO 登录，由 SSO 端处理注册
+  let authConfig = getStoredAuthConfig()
+  if (!authConfig) {
+    try {
+      authConfig = await fetchAuthConfig()
+      if (authConfig) uni.setStorageSync('authConfig', JSON.stringify(authConfig))
+    } catch (e) {
+      console.warn('[Register] 获取认证配置失败:', e)
+    }
+  }
+  if (authConfig?.mode === 'sso' && authConfig?.ssoLoginUrl) {
+    // SSO 模式下，若租户关闭了注册，跳登录页让 SSO 端处理（SSO 端可能有注册开关或邀请码注册）
+    if (authConfig.registerEnabled === false) {
+      uni.redirectTo({ url: '/pages/login/login' })
+      return
+    }
+    const returnUrl = window.location.origin + '/#/pages/auth-callback/auth-callback'
+    const params = new URLSearchParams({
+      app_code: authConfig.ssoAppCode || 'course',
+      return_url: returnUrl,
+    })
+    // 与 login.vue 的 redirectToSso 保持一致：同时透传 invite_code（用户码）和 channel_code（渠道码）
+    // 用户码优先取 storage 的 inviteCode，其次回退到 URL 中的 invitecode（兼容旧链接）
+    const userInviteCode = uni.getStorageSync('inviteCode') || ''
+    const channelInvite = uni.getStorageSync('channelInviteCode') || invitecode || ''
+    if (userInviteCode) params.append('invite_code', userInviteCode)
+    else if (invitecode) params.append('invite_code', invitecode)
+    if (channelInvite) params.append('channel_code', channelInvite)
+    // 透传调试参数 debugWx，便于本地端到端模拟微信环境
+    const debugWx = hashParams.get('debugWx')
+    if (debugWx === '1') params.append('debugWx', '1')
+    const sep = authConfig.ssoLoginUrl.includes('?') ? '&' : '?'
+    window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
+    return
+  }
+  // #endif
 })
 
 const canRegister = computed(() => {

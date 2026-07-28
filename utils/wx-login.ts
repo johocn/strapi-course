@@ -91,7 +91,17 @@ async function _doSilentLogin(inviteCode?: string, channelInviteCode?: string) {
 
 /**
  * 授权登录 - 获取用户头像昵称
- * 微信新版 getUserProfile API，同时获取 encryptedData/iv 发送到后端
+ *
+ * ⚠️ 注意：wx.getUserProfile 自 2022-10-25 起被微信弃用，调用不再弹出授权弹窗，
+ *    返回的 userInfo 固定为匿名数据（昵称 "微信用户" + 灰色默认头像）。
+ *    encryptedData/iv 仍会返回但同样为匿名内容，写入后端会导致用户资料被覆盖为匿名值。
+ *
+ * 迁移方案（TODO）：改用 WeChat 新版头像昵称组件：
+ *    - 头像：<button open-type="chooseAvatar" bind:chooseavatar>
+ *    - 昵称：<input type="nickname">
+ *  需新增授权弹窗页面，由用户主动点击触发，替代此处的自动调用。
+ *
+ * 当前兜底策略：检测到匿名数据时跳过后端写入，避免覆盖已有资料。
  */
 export async function authorizeLogin(): Promise<{ nickname: string; avatar: string }> {
   return new Promise((resolve, reject) => {
@@ -99,6 +109,15 @@ export async function authorizeLogin(): Promise<{ nickname: string; avatar: stri
       desc: '用于完善用户资料',
       success: async (res) => {
         const { nickName, avatarUrl } = res.userInfo
+        // 检测微信弃用后的匿名返回数据，跳过写入避免覆盖
+        const isAnonymous = nickName === '微信用户' || !avatarUrl || avatarUrl.includes('default_avatar')
+
+        if (isAnonymous) {
+          console.warn('[wx-login] getUserProfile 返回匿名数据（API 已弃用），跳过资料更新')
+          resolve({ nickname: '', avatar: '' })
+          return
+        }
+
         // 如果有加密数据，发送到后端更新
         if (res.encryptedData && res.iv) {
           try {

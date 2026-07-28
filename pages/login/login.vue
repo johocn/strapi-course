@@ -517,6 +517,9 @@ onMounted(async () => {
         const redirectUrl = `${baseUrl}/#/pages/auth-callback/auth-callback`
         const result = await fetchQrconnectUrl(redirectUrl)
         qrconnectUrl.value = result.qrconnectUrl
+        // 标记 appType，扫码后 auth-callback 会从 storage 读取并以 open_platform 调 /third/callback
+        // 与 redirectToOpenPlatformAuth（跳转模式）保持一致
+        uni.setStorageSync('wxAuthAppType', 'open_platform')
       }
     } catch {
       // 开放平台未配置，忽略
@@ -556,12 +559,15 @@ function redirectToSso() {
   // SSO 登录页/回调页用 decodeURIComponent 解码一次即可，避免双重编码
   const returnUrl = window.location.origin + '/#/pages/auth-callback/auth-callback'
   const appCode = authConfig.value?.ssoAppCode || 'course'
-  const inviteCode = channelInviteCode.value || ''
+  // 同时透传用户邀请码和渠道邀请码，避免 SSO 端无法建立分销关系
+  const userInviteCode = inviteCode.value || ''
+  const channelInvite = channelInviteCode.value || ''
   const params = new URLSearchParams({
     app_code: appCode,
     return_url: returnUrl,
   })
-  if (inviteCode) params.append('invite_code', inviteCode)
+  if (userInviteCode) params.append('invite_code', userInviteCode)
+  if (channelInvite) params.append('channel_code', channelInvite)
   // 透传调试参数 debugWx，便于本地端到端模拟微信环境
   if (typeof window !== 'undefined') {
     const searchParams = new URLSearchParams(window.location.search)

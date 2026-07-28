@@ -1,3 +1,20 @@
+<!--
+  C 端 OAuth 回调页（zhao-third 体系）
+
+  适用场景：
+  - 三方登录模式（authConfig.mode === 'third'）下的微信公众号/开放平台登录回调
+  - 接收微信 OAuth code，POST /zhao-third/v1/third/callback 换 token
+
+  不适用场景：
+  - SSO 模式（authConfig.mode === 'sso'）的回调。SSO 模式下：
+    1. SSO 后端 wechatCallback/alipayCallback 302 回 SSO 的 login-callback?code=xxx&state=xxx
+    2. SSO login-callback.vue 调 /zhao-sso/v1/auth/exchange-token 换 token
+    3. login-callback 再 302 回本页（auth-callback?token=xxx&user=base64(json)）
+    4. 本页识别到 token 参数后直接写入并跳首页
+
+  即：SSO 模式下本页只负责"接收 token 并跳首页"这一步，不调 zhao-third 接口。
+  两条分支由 URL 参数区分：有 token 走 SSO 路径，有 code 走 zhao-third 路径。
+-->
 <template>
   <view class="auth-callback">
     <view class="loading-container">
@@ -31,6 +48,9 @@ async function handleOAuthCallback() {
     const userId = urlParams.get('userId') || hashParams.get('userId')
     const userEncoded = urlParams.get('user') || hashParams.get('user')
     const isNew = urlParams.get('isNew') || hashParams.get('isNew')
+    // state 语义（Type C）：登录后目标导航路径（如 /pages/course/detail?id=123），
+    // 由 zhao-third OAuth 流程透传回来；SSO 流程不传此参数，state 为 null 时回退到首页。
+    // 与 SSO 后端的 Type A（base64url JSON 信封）和 Type B（OAuth2 透传）语义均不同。
     const state = urlParams.get('state') || hashParams.get('state')
     const error = urlParams.get('error') || hashParams.get('error')
 
@@ -54,6 +74,10 @@ async function handleOAuthCallback() {
         }
       } else if (userId) {
         setUser({ id: Number(userId) })
+      }
+      // isNew='1' 标识首登用户，存 storage 供首页显示欢迎提示（消费后由首页清除）
+      if (isNew === '1' || isNew === 'true' || isNew === 1) {
+        uni.setStorageSync('isNewUser', '1')
       }
       statusText.value = '登录成功，正在跳转...'
 
@@ -110,6 +134,10 @@ async function handleOAuthCallback() {
     if (callbackToken) {
       setToken(callbackToken)
       if (res.user) setUser(res.user)
+      // zhao-third 返回 isNew 标识首登用户
+      if (res.isNew === true || res.is_new === true) {
+        uni.setStorageSync('isNewUser', '1')
+      }
       statusText.value = '登录成功，正在跳转...'
 
       window.history.replaceState({}, '', window.location.pathname + window.location.hash.split('?')[0])

@@ -4,6 +4,12 @@
     <view class="header">
       <view class="header-bg"></view>
       <view class="header-content">
+        <!-- 首登欢迎提示（由 auth-callback 写入 isNewUser=1 触发，点击或 5 秒后自动消失） -->
+        <view v-if="showWelcome" class="welcome-banner" @click="dismissWelcome">
+          <text class="welcome-icon">🎉</text>
+          <text class="welcome-text">欢迎加入{{ siteConfig?.siteName ?? '圣麟教育' }}，开启学习之旅！</text>
+          <text class="welcome-close">×</text>
+        </view>
         <view class="header-top">
           <view class="header-left">
             <text class="header-title">🎓 全部课程</text>
@@ -156,6 +162,28 @@ const pointBalance = ref(0)
 const isLoggedIn = ref(false)
 const inviteCode = ref('')
 const siteConfig = ref<any>(null)
+// 首登欢迎提示（auth-callback 写入 isNewUser=1 时触发）
+const showWelcome = ref(false)
+let welcomeTimer: any = null
+
+function dismissWelcome() {
+  showWelcome.value = false
+  uni.removeStorageSync('isNewUser')
+  if (welcomeTimer) {
+    clearTimeout(welcomeTimer)
+    welcomeTimer = null
+  }
+}
+
+function checkNewUserWelcome() {
+  if (uni.getStorageSync('isNewUser') === '1') {
+    showWelcome.value = true
+    // 5 秒后自动消失
+    welcomeTimer = setTimeout(() => {
+      dismissWelcome()
+    }, 5000)
+  }
+}
 
 function getUserInfo() {
   const loginState = checkLogin()
@@ -317,6 +345,8 @@ function handleInviteCode() {
 onMounted(() => {
   handleInviteCode()
   refreshData()
+  // 检查首登欢迎提示（auth-callback 写入的 isNewUser 标记）
+  checkNewUserWelcome()
 })
 
 onPageShow(() => {
@@ -383,6 +413,39 @@ onShareTimeline(() => {
 .header-content {
   position: relative;
   z-index: 1;
+}
+
+/* 首登欢迎提示 */
+.welcome-banner {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 16rpx 24rpx;
+  margin-bottom: 16rpx;
+  background: linear-gradient(135deg, #fff8e1 0%, #ffe082 100%);
+  border-radius: 12rpx;
+  border: 1rpx solid #ffb300;
+  box-shadow: 0 4rpx 12rpx rgba(255, 179, 0, 0.2);
+  cursor: pointer;
+}
+
+.welcome-icon {
+  font-size: 32rpx;
+  flex-shrink: 0;
+}
+
+.welcome-text {
+  flex: 1;
+  font-size: 26rpx;
+  color: #5d4037;
+  font-weight: 500;
+}
+
+.welcome-close {
+  font-size: 36rpx;
+  color: #6d4c41;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 .header-top {

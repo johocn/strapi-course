@@ -80,8 +80,16 @@ function handleInviteLink(): void {
   const hashQuery = window.location.hash.split('?')[1] ?? ''
   const hashParams = new URLSearchParams(hashQuery)
 
-  const inviteCodeFromUrl = urlParams.get('inviteCode') || hashParams.get('inviteCode')
-  const channelCodeFromUrl = urlParams.get('channelCode') || hashParams.get('channelCode')
+  // 兼容三种命名变体：
+  //   - camelCase：inviteCode / channelCode（小程序分享、内部跳转）
+  //   - lowercase：invitecode / channelcode（channel/detail.vue 生成的二维码链接）
+  //   - snake_case：invite_code / channel_code（SSO 流程透传参数）
+  const inviteCodeFromUrl =
+    urlParams.get('inviteCode') || urlParams.get('invitecode') || urlParams.get('invite_code') ||
+    hashParams.get('inviteCode') || hashParams.get('invitecode') || hashParams.get('invite_code')
+  const channelCodeFromUrl =
+    urlParams.get('channelCode') || urlParams.get('channelcode') || urlParams.get('channel_code') ||
+    hashParams.get('channelCode') || hashParams.get('channelcode') || hashParams.get('channel_code')
 
   if (inviteCodeFromUrl) {
     storeInviteCode(inviteCodeFromUrl)
@@ -105,16 +113,18 @@ function handleInviteLink(): void {
     const currentPage = pages[pages.length - 1]
     const options = (currentPage as any)?.options ?? {}
 
-    // 保存邀请码
-    if (options.inviteCode) {
-      storeInviteCode(options.inviteCode)
-      console.log('保存邀请码:', options.inviteCode)
+    // 保存邀请码（同时兼容 inviteCode 与 invite_code 两种命名）
+    const mpInviteCode = options.inviteCode || options.invite_code
+    if (mpInviteCode) {
+      storeInviteCode(mpInviteCode)
+      console.log('保存邀请码:', mpInviteCode)
     }
 
-    // 保存渠道邀请码
-    if (options.channelCode) {
-      storeInviteCode(options.channelCode)
-      console.log('保存渠道邀请码:', options.channelCode)
+    // 保存渠道邀请码（同时兼容 channelCode 与 channel_code 两种命名）
+    const mpChannelCode = options.channelCode || options.channel_code
+    if (mpChannelCode) {
+      storeInviteCode(mpChannelCode)
+      console.log('保存渠道邀请码:', mpChannelCode)
     }
 
     // 保存邀请人ID
