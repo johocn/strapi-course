@@ -38,6 +38,12 @@ onMounted(async () => {
 })
 
 // #ifdef H5
+// === 兜底建立分销关系（SSO 路径 + third 路径共用） ===
+async function bindInviteCodesAfterCallback() {
+  const { bindInviteCodesAfterLogin } = await import('../../utils/invite')
+  await bindInviteCodesAfterLogin()
+}
+
 async function handleOAuthCallback() {
   try {
     const urlParams = new URLSearchParams(window.location.search)
@@ -82,10 +88,11 @@ async function handleOAuthCallback() {
       statusText.value = '登录成功，正在跳转...'
 
       window.history.replaceState({}, '', window.location.pathname + window.location.hash.split('?')[0])
+      // 兜底建立分销关系（成功才清除 inviteCode/channelInviteCode，失败保留下次再试）
+      await bindInviteCodesAfterCallback()
+      // 清理无关 storage（非邀请码）
       uni.removeStorageSync('wxAuthScope')
       uni.removeStorageSync('wxAuthAppType')
-      uni.removeStorageSync('inviteCode')
-      uni.removeStorageSync('channelInviteCode')
       uni.removeStorageSync('h5AutoLoginAttemptedAt')
 
       setTimeout(() => {
@@ -141,10 +148,11 @@ async function handleOAuthCallback() {
       statusText.value = '登录成功，正在跳转...'
 
       window.history.replaceState({}, '', window.location.pathname + window.location.hash.split('?')[0])
+      // 兜底建立分销关系（覆盖后端 createForUser 失败/老用户不处理/channelInviteCode 丢弃）
+      await bindInviteCodesAfterCallback()
+      // 清理无关 storage（非邀请码）
       uni.removeStorageSync('wxAuthScope')
       uni.removeStorageSync('wxAuthAppType')
-      uni.removeStorageSync('inviteCode')
-      uni.removeStorageSync('channelInviteCode')
       uni.removeStorageSync('h5AutoLoginAttemptedAt')
 
       setTimeout(() => {
