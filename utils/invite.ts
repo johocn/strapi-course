@@ -17,9 +17,10 @@ function getInviteCode(): string {
 }
 
 // 生成邀请码
-function generateInviteCode(userId: string): string {
-  // 基于用户ID生成6位邀请码
-  const hash = userId.split('').reduce((acc, char) => {
+function generateInviteCode(userId: string | number): string {
+  // 基于用户ID生成6位邀请码（userId 可能是 number，统一转 string）
+  const idStr = String(userId ?? 'guest')
+  const hash = idStr.split('').reduce((acc, char) => {
     return acc + char.charCodeAt(0)
   }, 0)
   const code = (hash % 900000 + 100000).toString()
