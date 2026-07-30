@@ -429,6 +429,85 @@ const canLogin = computed(() => {
   }
 })
 
+// === 降级链决策：返回有序的可用登录方式 ===
+interface LoginOption {
+  key: 'wechat-mp' | 'wechat-h5' | 'wechat-pc' | 'sso' | 'local'
+  priority: number      // 1=最高
+  autoTrigger: boolean  // 是否自动触发（无需用户点击）
+  available: boolean
+}
+
+function resolveLoginChain(): LoginOption[] {
+  const options: LoginOption[] = []
+  const mode = authConfig.value?.mode || 'local'
+  const ssoLoginUrl = authConfig.value?.ssoLoginUrl || ''
+  const wechatOfficialAccountEnabled = authConfig.value?.wechatOfficialAccountEnabled
+  const wechatOpenPlatformEnabled = authConfig.value?.wechatOpenPlatformEnabled
+  const wechatMiniProgramEnabled = authConfig.value?.wechatMiniProgramEnabled
+
+  // #ifdef MP-WEIXIN
+  // 微信小程序：third 可用 → silentLogin
+  if (mode === 'third' && wechatMiniProgramEnabled) {
+    options.push({ key: 'wechat-mp', priority: 1, autoTrigger: true, available: true })
+  }
+  // #endif
+
+  // #ifdef H5
+  // H5 微信浏览器：third 可用 + 公众号 → snsapi_base 自动跳
+  if (isWechatBrowser() && mode === 'third' && wechatOfficialAccountEnabled) {
+    options.push({ key: 'wechat-h5', priority: 1, autoTrigger: true, available: true })
+  }
+  // H5 微信浏览器：third 不可用 + SSO 可用 → 自动跳 SSO（SSO 后端再跳微信）
+  if (isWechatBrowser() && !wechatOfficialAccountEnabled && ssoLoginUrl) {
+    options.push({ key: 'sso', priority: 1, autoTrigger: true, available: true })
+  }
+  // H5 非微信浏览器：third 可用 + 开放平台 → PC 扫码
+  if (!isWechatBrowser() && mode === 'third' && wechatOpenPlatformEnabled) {
+    options.push({ key: 'wechat-pc', priority: 1, autoTrigger: false, available: true })
+  }
+  // H5 非微信浏览器：third 不可用 + SSO 可用 → SSO 入口
+  if (!isWechatBrowser() && mode !== 'third' && ssoLoginUrl) {
+    options.push({ key: 'sso', priority: 2, autoTrigger: false, available: true })
+  }
+  // #endif
+
+  // 兜底：本地表单（优先级最低）
+  options.push({ key: 'local', priority: 99, autoTrigger: false, available: true })
+
+  // 按优先级排序
+  return options.sort((a, b) => a.priority - b.priority)
+}
+
+// === 微信环境自动登录决策（优先级高于 mode） ===
+async function resolveWechatAutoLogin(): Promise<boolean> {
+  // #ifdef H5
+  if (!isWechatBrowser()) return false
+
+  const mode = authConfig.value?.mode || 'local'
+  const wechatOfficialAccountEnabled = authConfig.value?.wechatOfficialAccountEnabled
+  const ssoLoginUrl = authConfig.value?.ssoLoginUrl
+
+  // 三方优先：直接跳微信
+  if (mode === 'third' && wechatOfficialAccountEnabled) {
+    redirectToWechatAuth('snsapi_base')
+    return true
+  }
+
+  // 降级 SSO：SSO 后端再跳微信
+  if (!wechatOfficialAccountEnabled && ssoLoginUrl) {
+    redirectToSso()
+    return true
+  }
+
+  // 都不可用 → 显示本地表单 + 微信按钮
+  return false
+  // #endif
+
+  // #ifndef H5
+  return false
+  // #endif
+}
+
 // === 初始化：获取认证配置 + 邀请码处理 ===
 onMounted(async () => {
   // 优先从 storage 读取（App onLaunch 已获取过）
@@ -526,9 +605,8 @@ onMounted(async () => {
     }
   }
 
-  // SSO 模式 + 微信环境 → 自动跳转 SSO 登录页（无需用户点击）
-  if (isWechatBrowser() && authConfig.value?.mode === 'sso' && authConfig.value?.ssoLoginUrl) {
-    redirectToSso()
+  // 微信环境自动跳转（降级链决策，优先级高于 mode）
+  if (await resolveWechatAutoLogin()) {
     return
   }
   // #endif
@@ -678,7 +756,7 @@ async function handleLogin() {
       })
 
       // 绑定邀请码（用户邀请码和渠道邀请码）
-      await bindInviteCodesAfterLogin(resData.user?.id)
+      await bindInviteCodesAfterLogin()
 
       uni.hideLoading()
       uni.showToast({ title: '登录成功', icon: 'success' })
@@ -741,47 +819,10 @@ async function handleLogin() {
   }
 }
 
-// === 绑定邀请码 ===
-async function bindInviteCodesAfterLogin(userId: number) {
-  // 绑定用户邀请码
-  if (inviteCode.value) {
-    try {
-      await useInviteCode(inviteCode.value)
-      console.log('[Login] User invite code bound successfully:', inviteCode.value)
-      uni.removeStorageSync('inviteCode')
-
-      uni.showToast({
-        title: '邀请码绑定成功',
-        icon: 'success'
-      })
-    } catch (e) {
-      console.error('[Login] Failed to bind user invite code:', e)
-      uni.showToast({
-        title: '邀请码绑定失败，请稍后重试',
-        icon: 'none'
-      })
-    }
-  }
-
-  // 绑定渠道邀请码
-  if (channelInviteCode.value) {
-    try {
-      await joinChannelByInvite(channelInviteCode.value)
-      console.log('[Login] Channel invite code bound successfully:', channelInviteCode.value)
-      uni.removeStorageSync('channelInviteCode')
-
-      uni.showToast({
-        title: '已成功加入渠道',
-        icon: 'success'
-      })
-    } catch (e) {
-      console.error('[Login] Failed to join channel:', e)
-      uni.showToast({
-        title: '渠道邀请失败，请稍后重试',
-        icon: 'none'
-      })
-    }
-  }
+// === 绑定邀请码（调用统一兜底函数） ===
+async function bindInviteCodesAfterLogin() {
+  const { bindInviteCodesAfterLogin: doBind } = await import('../../utils/invite')
+  await doBind()
 }
 
 // === 微信登录（非微信环境降级使用） ===
