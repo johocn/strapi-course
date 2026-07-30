@@ -110,7 +110,7 @@ export default {
         initJSSDK().then(() => configShareWithInvite())
       } else {
         // 无 token：自动触发 snsapi_base 静默登录
-        // 防循环 4 重检查：URL 不带 code + 不在 auth-callback 页 + 5 分钟 TTL 内未尝试过
+        // 防循环 5 重检查：URL 不带 code + 不在 auth-callback 页 + 5 分钟 TTL 内未尝试过 + 不在注册/登录页
         const urlParams = new URLSearchParams(window.location.search)
         const hashQuery = window.location.hash.split('?')[1] || ''
         const hashParams = new URLSearchParams(hashQuery)
@@ -118,11 +118,13 @@ export default {
 
         const currentPath = window.location.hash.replace(/^#/, '').split('?')[0] || '/pages/index/index'
         const onAuthCallback = currentPath.startsWith('/pages/auth-callback/auth-callback')
+        // 注册页/登录页：用户已主动进入登录注册流程，不自动跳微信
+        const onAuthPage = currentPath.startsWith('/pages/register/register') || currentPath.startsWith('/pages/login/login')
 
         const attemptedAt = Number(uni.getStorageSync('h5AutoLoginAttemptedAt') || 0)
         const expired = Date.now() - attemptedAt > 5 * 60 * 1000
 
-        if (!hasCode && !onAuthCallback && expired) {
+        if (!hasCode && !onAuthCallback && !onAuthPage && expired) {
           uni.setStorageSync('h5AutoLoginAttemptedAt', String(Date.now()))
           // state 编码当前路径，授权后回到来源页
           const state = encodeURIComponent(currentPath)
