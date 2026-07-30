@@ -345,6 +345,7 @@ import type { AuthConfig } from '../../services/auth-config'
 import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import { getQrconnectUrl as fetchQrconnectUrl, redirectToOpenPlatformAuth as doRedirectToOpenPlatformAuth } from '../../utils/wx-open-platform-login'
+import { bindInviteCodesAfterLogin as doBindInviteCodes } from '../../utils/invite'
 // #endif
 
 // === 认证配置状态 ===
@@ -832,8 +833,7 @@ async function handleLogin() {
 
 // === 绑定邀请码（调用统一兜底函数） ===
 async function bindInviteCodesAfterLogin() {
-  const { bindInviteCodesAfterLogin: doBind } = await import('../../utils/invite')
-  await doBind()
+  await doBindInviteCodes()
 }
 
 // === 微信登录（非微信环境降级使用） ===

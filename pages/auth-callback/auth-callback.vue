@@ -28,6 +28,7 @@
 import { ref, onMounted } from 'vue'
 import { request } from '../../services/api'
 import { setToken, setUser } from '../../utils/storage'
+import { bindInviteCodesAfterLogin } from '../../utils/invite'
 
 const statusText = ref('微信登录中...')
 
@@ -40,7 +41,6 @@ onMounted(async () => {
 // #ifdef H5
 // === 兜底建立分销关系（SSO 路径 + third 路径共用） ===
 async function bindInviteCodesAfterCallback() {
-  const { bindInviteCodesAfterLogin } = await import('../../utils/invite')
   await bindInviteCodesAfterLogin()
 }
 

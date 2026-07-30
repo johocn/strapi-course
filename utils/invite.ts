@@ -4,6 +4,7 @@
 import { getToken, getUser, setUser } from './storage'
 import { BASE_API } from './env'
 import { getStoredAuthConfig } from '../services/auth-config'
+import { useInviteCode, joinChannelByInvite } from '../services/api'
 
 // 获取用户邀请码
 function getInviteCode(): string {
@@ -327,7 +328,6 @@ export async function bindInviteCodesAfterLogin(): Promise<void> {
   // 用户邀请码 → useInviteCode
   if (inviteCode) {
     try {
-      const { useInviteCode } = await import('../services/api')
       await useInviteCode(inviteCode)
       uni.removeStorageSync('inviteCode')
       console.log('[invite] 用户邀请码绑定成功:', inviteCode)
@@ -339,7 +339,6 @@ export async function bindInviteCodesAfterLogin(): Promise<void> {
   // 渠道邀请码 → joinChannelByInvite（后端幂等，已存在则返回 isNewMember: false）
   if (channelInviteCode) {
     try {
-      const { joinChannelByInvite } = await import('../services/api')
       await joinChannelByInvite(channelInviteCode)
       uni.removeStorageSync('channelInviteCode')
       console.log('[invite] 渠道邀请码绑定成功:', channelInviteCode)
