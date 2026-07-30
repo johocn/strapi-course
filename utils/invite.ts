@@ -305,3 +305,45 @@ export {
   recordInvite,
   checkInvitedUser
 }
+
+// ==================== 邀请码兜底绑定 ====================
+
+/**
+ * 登录/回调成功后兜底建立分销关系
+ * - inviteCode（用户邀请码，来自 v.joho.cn）→ useInviteCode（/user-invites/use）
+ * - channelInviteCode（渠道邀请码，来自 h.joho.cn）→ joinChannelByInvite（/channel-invite/join，幂等）
+ *
+ * 调用方：
+ * - login.vue 本地登录成功后
+ * - auth-callback.vue SSO/third 回调成功后
+ *
+ * 策略：成功才清除 storage，失败保留下次再试
+ */
+export async function bindInviteCodesAfterLogin(): Promise<void> {
+  const inviteCode = uni.getStorageSync('inviteCode') || ''
+  const channelInviteCode = uni.getStorageSync('channelInviteCode') || ''
+
+  // 用户邀请码 → useInviteCode
+  if (inviteCode) {
+    try {
+      const { useInviteCode } = await import('../services/api')
+      await useInviteCode(inviteCode)
+      uni.removeStorageSync('inviteCode')
+      console.log('[invite] 用户邀请码绑定成功:', inviteCode)
+    } catch (e) {
+      console.warn('[invite] 绑定用户邀请码失败，保留 storage:', e)
+    }
+  }
+
+  // 渠道邀请码 → joinChannelByInvite（后端幂等，已存在则返回 isNewMember: false）
+  if (channelInviteCode) {
+    try {
+      const { joinChannelByInvite } = await import('../services/api')
+      await joinChannelByInvite(channelInviteCode)
+      uni.removeStorageSync('channelInviteCode')
+      console.log('[invite] 渠道邀请码绑定成功:', channelInviteCode)
+    } catch (e) {
+      console.warn('[invite] 加入渠道失败，保留 storage:', e)
+    }
+  }
+}
