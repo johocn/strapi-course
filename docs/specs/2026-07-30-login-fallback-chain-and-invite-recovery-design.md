@@ -4,26 +4,68 @@
 **范围**: strapi-course 前端（C 端）
 **状态**: 待实施
 
+## 与历史设计的关系
+
+本设计 **继承** 以下已实施的历史设计，不重复设计这些部分：
+
+| 历史设计 | 已实施内容 | 本设计关系 |
+|---------|-----------|-----------|
+| [2026-07-24 zhao-sso-wechat-login-design](file:///d:/zhao/strapi/docs/superpowers/specs/2026-07-24-zhao-sso-wechat-login-design.md) | 后端 SSO 微信登录基础设施（wechatRedirect/callback/miniprogram/app/jssdk-signature/config） | 不改动后端 |
+| [2026-07-25 sso-fallback-login-design](file:///d:/zhao/docs/superpowers/specs/2026-07-25-sso-fallback-login-design.md) | wx-sso-login 组件降级（password-authorize、fallbackEnabled/fallbackMode） | 不改动 strapi-backend |
+| [2026-07-26 sso-login-fallback-design](file:///d:/zhao/docs/superpowers/specs/2026-07-26-sso-login-fallback-design.md) | SSO 登录页/回调页/注册页（strapi-backend/sso/*） | 不改动 strapi-backend |
+| [2026-07-27 sso-wechat-auto-login-design](file:///d:/zhao/docs/superpowers/specs/2026-07-27-sso-wechat-auto-login-design.md) | C 端微信环境自动跳 SSO（login.vue onMounted） | 本设计在此基础上增加降级链 |
+
+**本设计真正新增**：
+1. 降级链架构（三方 → SSO → 本地）—— 历史设计未实现
+2. auth-callback 兜底分销关系 —— 历史设计未实现
+
 ## 背景与问题
 
 ### 当前架构
 
 strapi-course 前端登录页（[login.vue](file:///d:/zhao/strapi-course/pages/login/login.vue)）采用 **互斥模式**：`authConfig.mode` 决定单一登录方式（`'third'` / `'sso'` / `'local'`），5 个 `v-if` 互斥分支渲染对应 UI。
 
-### 识别的问题
+### 登录流程合理性审查发现
 
-1. **无降级链**：third 模式下不会走 SSO，SSO 模式下不会走本地，非互斥降级不可行
-2. **微信环境不覆盖 mode**：`local` 模式下微信浏览器显示本地表单，不自动跳微信
-3. **auth-callback 不兜底分销关系**：[auth-callback.vue:91-102](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 登录成功后立即清理 `inviteCode`/`channelInviteCode` storage，但**未调用** `joinChannelByInvite` 建立分销关系。依赖后端 `channel-sync.syncUserInvite`，失败时只 warn 不重试 → 邀请码丢失
-4. **register.vue 表单 inviteCode 空值丢失**：用户清空表单 inviteCode 字段时，注册接口收到空值，丢失用户码
+审查 [auth-callback.vue](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 和 [zhao-third 后端](file:///d:/zhao/strapi/plugins/zhao-third/server/src/services/third-party-auth.ts) 后发现 **4 个邀请码丢失风险**：
+
+#### 风险 1：SSO 回调路径无前端兜底
+
+[auth-callback.vue:85-89](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) SSO 路径（token 参数）登录成功后立即清除 `inviteCode`/`channelInviteCode` storage，但未调用 `joinChannelByInvite`。依赖后端 `channel-sync.syncUserInvite`，失败时只 warn 不重试 → 邀请码丢失。
+
+#### 风险 2：zhao-third 回调路径丢弃 channelInviteCode
+
+[zhao-third controller:50](file:///d:/zhao/strapi/plugins/zhao-third/server/src/controllers/third-party-auth.ts) 只解构 `inviteCode`，**不接收 channelInviteCode**：
+
+```typescript
+const { platform, appType, code, encryptedData, iv, inviteCode } = ctx.request.body;
+```
+
+前端 [auth-callback.vue:128](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 传了 `channelInviteCode`，但后端丢弃 → 渠道码丢失。
+
+#### 风险 3：zhao-third 只在新用户创建时处理邀请码
+
+[third-party-auth.ts:320-344](file:///d:/zhao/strapi/plugins/zhao-third/server/src/services/third-party-auth.ts) `createUserFromThirdParty` 只在首次注册时调用 `channelService.createForUser(user.id, inviteCode)`。
+
+**老用户登录**（已存在用户）→ 不处理邀请码 → 邀请码丢失。
+
+#### 风险 4：zhao-third 失败只 warn
+
+[third-party-auth.ts:343-344](file:///d:/zhao/strapi/plugins/zhao-third/server/src/services/third-party-auth.ts) 邀请码处理失败只 `strapi.log.warn`，不重试，不通知前端 → 邀请码丢失。
+
+### 其他问题
+
+5. **无降级链**：third 模式下不会走 SSO，SSO 模式下不会走本地，非互斥降级不可行
+6. **微信环境不覆盖 mode**：`local` 模式下微信浏览器显示本地表单，不自动跳微信
+7. **register.vue 表单 inviteCode 空值丢失**：用户清空表单 inviteCode 字段时，注册接口收到空值，丢失用户码
 
 ## 目标
 
 1. 登录方式改为 **自动降级链**：三方 → SSO → 本地
 2. 微信环境 **总是自动跳微信**（优先级高于 mode）
-3. auth-callback 兜底建立分销关系（后端失败时前端补建）
+3. auth-callback 兜底建立分销关系（覆盖 SSO 路径 + third 路径，解决风险 1-4）
 4. 不改动现有邀请码参数命名和 storage key
-5. 不改动后端任何接口
+5. 不改动后端任何接口（风险 2-4 由前端兜底覆盖）
 
 ## 不改动清单
 
@@ -107,29 +149,46 @@ interface LoginOption {
 3. 5 分钟 TTL（`h5AutoLoginAttemptedAt`）
 4. storage 标记
 
-### 7. auth-callback 兜底逻辑
+### 7. auth-callback 兜底逻辑（覆盖 SSO 路径 + third 路径）
+
+**两条回调路径都需要兜底**：
+
+- **SSO 路径**（token 参数）：解决风险 1（后端 channel-sync 失败无重试）
+- **third 路径**（code 参数 → /zhao-third/callback）：解决风险 2-4（后端丢弃 channelInviteCode、老用户不处理、失败只 warn）
 
 ```
-auth-callback.vue 接收回调（token + user + isNew + state）
+auth-callback.vue 接收回调
   │
-  ├─ 步骤 1：写入 token + user
+  ├─ 路径 A：SSO 回调（URL 有 token 参数）
+  │   ├─ 步骤 1a：写入 token + user
+  │   └─ 步骤 2a：兜底建立分销关系（新增）
   │
-  ├─ 步骤 2：兜底建立分销关系（核心新增）
-  │   │  从 storage 读取 inviteCode / channelInviteCode
-  │   ├─ 有 inviteCode → 调 joinChannelByInvite(inviteCode)
-  │   │   ├─ 成功 → 清除 inviteCode storage
-  │   │   └─ 失败 → 保留 inviteCode storage（下次登录再试）
-  │   ├─ 有 channelInviteCode → 调 joinChannelByInvite(channelInviteCode)
-  │   │   ├─ 成功 → 清除 channelInviteCode storage
-  │   │   └─ 失败 → 保留 channelInviteCode storage
-  │   └─ 无邀请码 → 跳过
+  ├─ 路径 B：third 回调（URL 有 code 参数）
+  │   ├─ 步骤 1b：POST /zhao-third/v1/third/callback 换 token
+  │   ├─ 步骤 2b：写入 token + user
+  │   └─ 步骤 2b'：兜底建立分销关系（新增）
   │
-  ├─ 步骤 3：清理无关 storage（wxAuthScope, wxAuthAppType, h5AutoLoginAttemptedAt）
+  └─ 共同步骤 3：兜底逻辑（两条路径都执行）
+      │  从 storage 读取 inviteCode / channelInviteCode
+      ├─ 有 inviteCode → 调 joinChannelByInvite(inviteCode)
+      │   ├─ 成功 → 清除 inviteCode storage
+      │   └─ 失败 → 保留 inviteCode storage（下次登录再试）
+      ├─ 有 channelInviteCode → 调 joinChannelByInvite(channelInviteCode)
+      │   ├─ 成功 → 清除 channelInviteCode storage
+      │   └─ 失败 → 保留 channelInviteCode storage
+      └─ 无邀请码 → 跳过
+
+  ├─ 步骤 4：清理无关 storage（wxAuthScope, wxAuthAppType, h5AutoLoginAttemptedAt）
   │
-  └─ 步骤 4：跳转
+  └─ 步骤 5：跳转
       ├─ state 参数存在 → reLaunch(state)  ← 导航 URL
       └─ 否则 → switchTab(/pages/index/index)
 ```
+
+**关键改动**：
+- 抽取 `bindInviteCodesAfterCallback()` 为独立函数，在两条路径的"写入 token 后"统一调用
+- 原 [auth-callback.vue:87-88](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 和 [L146-148](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 直接清除 storage 的代码删除，改由兜底函数成功后才清除
+- 原 [L118-119](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) third 路径传给后端的 inviteCode/channelInviteCode 保留（后端可能处理），前端兜底是补充
 
 ### 8. 统一兜底函数
 
@@ -192,12 +251,19 @@ if (resData.jwt ?? resData.token) {
 
 ## 分销关系建立路径汇总
 
-| 路径 | 建立方 | 接口 | 兜底 |
-|------|--------|------|------|
-| C 端本地注册 | 后端 | `sso-auth.buildInviteRelation` | 无需（后端已处理） |
-| C 端本地登录 | 前端 | `joinChannelByInvite` | login.vue 已有 |
-| C 端三方/SSO 回调 | 后端 SSO channel-sync | `syncUserInvite` | auth-callback.vue 前端调 `joinChannelByInvite` 兜底 |
-| 后台注册 | 前端 | `joinChannelByInvite` | strapi-backend 现有逻辑（不改动） |
+| 路径 | 后端处理 | 前端兜底 | 兜底解决的风险 |
+|------|----------|----------|---------------|
+| C 端本地注册 | `sso-auth.buildInviteRelation`（成功） | 无需 | — |
+| C 端本地登录 | 无 | `joinChannelByInvite`（login.vue 已有） | — |
+| C 端 SSO 回调 | `channel-sync.syncUserInvite`（可能失败，只 warn） | `joinChannelByInvite`（auth-callback 新增） | 风险 1 |
+| C 端 third 回调（新用户） | `createForUser`（可能失败，只 warn）；**不处理 channelInviteCode** | `joinChannelByInvite`（auth-callback 新增） | 风险 2、4 |
+| C 端 third 回调（老用户） | **不处理** | `joinChannelByInvite`（auth-callback 新增） | 风险 3 |
+| 后台注册 | 无 | `joinChannelByInvite`（strapi-backend 现有） | — |
+
+**关键说明**：
+- third 路径前端 [auth-callback.vue:128](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 仍传 inviteCode/channelInviteCode 给后端（后端可能部分处理）
+- 前端兜底是**补充**，不依赖后端是否处理成功
+- `joinChannelByInvite` 后端需保证幂等（后端已建立则 skip）
 
 ## 邀请码 storage 生命周期
 
@@ -226,12 +292,12 @@ if (resData.jwt ?? resData.token) {
 
 ### 改动文件
 
-| 文件 | 改动 |
-|------|------|
-| [pages/login/login.vue](file:///d:/zhao/strapi-course/pages/login/login.vue) | 新增 `resolveLoginChain()` / `resolveWechatAutoLogin()`，重构 onMounted 决策，模板改为主入口+备选列表 |
-| [pages/auth-callback/auth-callback.vue](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) | 新增 `bindInviteCodesAfterCallback()`，调整 storage 清理顺序 |
-| [utils/invite.ts](file:///d:/zhao/strapi-course/utils/invite.ts) | 新增 `bindInviteCodesAfterLogin()` 统一函数 |
-| [pages/register/register.vue](file:///d:/zhao/strapi-course/pages/register/register.vue) | 表单 inviteCode 空值回退 storage |
+| 文件 | 改动 | 解决问题 |
+|------|------|----------|
+| [pages/login/login.vue](file:///d:/zhao/strapi-course/pages/login/login.vue) | 新增 `resolveLoginChain()` / `resolveWechatAutoLogin()`，重构 onMounted 决策，模板改为主入口+备选列表 | 问题 5、6 |
+| [pages/auth-callback/auth-callback.vue](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) | 新增 `bindInviteCodesAfterCallback()`，SSO 路径和 third 路径都调用；删除原直接清除 storage 的代码 | 风险 1-4 |
+| [utils/invite.ts](file:///d:/zhao/strapi-course/utils/invite.ts) | 新增 `bindInviteCodesAfterLogin()` 统一函数 | 风险 1-4 |
+| [pages/register/register.vue](file:///d:/zhao/strapi-course/pages/register/register.vue) | 表单 inviteCode 空值回退 storage | 问题 7 |
 
 ### 不改动文件
 
@@ -266,31 +332,34 @@ if (resData.jwt ?? resData.token) {
 
 **第二层：邀请码分销兜底**
 
-| # | 场景 | 预期行为 |
-|---|------|----------|
-| 8 | C 端本地注册带邀请码 | 注册成功 + 后端建立分销 + 清除 storage |
-| 9 | C 端三方登录带邀请码 | auth-callback 兜底调 joinChannelByInvite + 清除 storage |
-| 10 | C 端 SSO 登录带邀请码 | auth-callback 兜底 + 清除 storage |
-| 11 | 兜底失败保留 storage | storage 保留，下次登录再试 |
-| 12 | 无邀请码直接登录 | 跳过兜底，不报错 |
-| 13 | 幂等（后端已建立 + 前端再调） | 后端 skip，前端成功清除 storage |
+| # | 场景 | 预期行为 | 覆盖风险 |
+|---|------|----------|---------|
+| 8 | C 端本地注册带邀请码 | 注册成功 + 后端建立分销 + 清除 storage | — |
+| 9 | C 端 SSO 登录带邀请码（后端成功） | auth-callback 兜底幂等调 joinChannelByInvite + 清除 storage | 风险 1 |
+| 10 | C 端 SSO 登录带邀请码（后端失败） | auth-callback 兜底调 joinChannelByInvite 成功 + 清除 storage | 风险 1 |
+| 11 | C 端 third 登录带邀请码（新用户） | auth-callback 兜底覆盖后端 createForUser 失败 + 清除 storage | 风险 4 |
+| 12 | C 端 third 登录带邀请码（老用户） | auth-callback 兜底调 joinChannelByInvite + 清除 storage | 风险 3 |
+| 13 | C 端 third 登录带 channelInviteCode | auth-callback 兜底调 joinChannelByInvite(channelInviteCode) + 清除 storage | 风险 2 |
+| 14 | 兜底失败保留 storage | storage 保留，下次登录再试 | — |
+| 15 | 无邀请码直接登录 | 跳过兜底，不报错 | — |
+| 16 | 幂等（后端已建立 + 前端再调） | 后端 skip，前端成功清除 storage | — |
 
 **第三层：防循环与边界**
 
 | # | 场景 | 预期行为 |
 |---|------|----------|
-| 14 | SSO 回跳 auth-callback 不再触发自动跳转 | auth-callback 页不调 redirectToSso |
-| 15 | 微信回调带 code 不再触发 snsapi_base | URL 有 code 参数时不自动跳微信 |
-| 16 | 5 分钟 TTL 防循环 | h5AutoLoginAttemptedAt TTL 内不重复跳转 |
-| 17 | register.vue 表单清空 inviteCode | 表单空 → 回退 storage → 注册接口收到邀请码 |
-| 18 | 后台 `h.joho.cn/?code=xxx` | 走 strapi-backend 现有逻辑（不改动） |
+| 17 | SSO 回跳 auth-callback 不再触发自动跳转 | auth-callback 页不调 redirectToSso |
+| 18 | 微信回调带 code 不再触发 snsapi_base | URL 有 code 参数时不自动跳微信 |
+| 19 | 5 分钟 TTL 防循环 | h5AutoLoginAttemptedAt TTL 内不重复跳转 |
+| 20 | register.vue 表单清空 inviteCode | 表单空 → 回退 storage → 注册接口收到邀请码 |
+| 21 | 后台 `h.joho.cn/?code=xxx` | 走 strapi-backend 现有逻辑（不改动） |
 
 ### 验证清单
 
 ```
 [ ] 场景 1-7：降级链决策正确
-[ ] 场景 8-13：邀请码分销兜底正确
-[ ] 场景 14-18：防循环与边界正确
+[ ] 场景 8-16：邀请码分销兜底正确（覆盖风险 1-4）
+[ ] 场景 17-21：防循环与边界正确
 [ ] C 端 v.joho.cn 链接：?invitecode=xxx 流程通畅
 [ ] 后台 h.joho.cn 链接：?code=xxx 流程通畅（未改动）
 [ ] 无邀请码登录不受影响
