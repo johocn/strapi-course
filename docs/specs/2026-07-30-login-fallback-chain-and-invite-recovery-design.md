@@ -192,33 +192,43 @@ auth-callback.vue 接收回调
 
 ### 8. 统一兜底函数
 
-抽取到 [utils/invite.ts](file:///d:/zhao/strapi-course/utils/invite.ts)：
+抽取到 [utils/invite.ts](file:///d:/zhao/strapi-course/utils/invite.ts)（从 [login.vue:745-785](file:///d:/zhao/strapi-course/pages/login/login.vue) 现有实现抽取，保持两个接口分工）：
 
 ```typescript
+import { useInviteCode, joinChannelByInvite } from '../services/api'
+
 export async function bindInviteCodesAfterLogin(): Promise<void> {
   const inviteCode = uni.getStorageSync('inviteCode') || ''
   const channelInviteCode = uni.getStorageSync('channelInviteCode') || ''
 
-  // 只用 joinChannelByInvite（strapi-backend 现有接口）
-  const codesToBind: string[] = []
-  if (inviteCode) codesToBind.push(inviteCode)
-  if (channelInviteCode && channelInviteCode !== inviteCode) {
-    codesToBind.push(channelInviteCode)
+  // 用户邀请码（来自 v.joho.cn）→ useInviteCode（/user-invites/use）
+  if (inviteCode) {
+    try {
+      await useInviteCode(inviteCode)
+      uni.removeStorageSync('inviteCode')
+    } catch (e) {
+      console.warn('[invite] 绑定用户邀请码失败，保留 storage', e)
+    }
   }
 
-  for (const code of codesToBind) {
+  // 渠道邀请码（来自 h.joho.cn）→ joinChannelByInvite（/channel-invite/join，幂等）
+  if (channelInviteCode) {
     try {
-      await joinChannelByInvite(code)
-      if (code === inviteCode) uni.removeStorageSync('inviteCode')
-      if (code === channelInviteCode) uni.removeStorageSync('channelInviteCode')
+      await joinChannelByInvite(channelInviteCode)
+      uni.removeStorageSync('channelInviteCode')
     } catch (e) {
-      console.warn(`[invite] 绑定邀请码 ${code} 失败，保留 storage`, e)
+      console.warn('[invite] 加入渠道失败，保留 storage', e)
     }
   }
 }
 ```
 
-- login.vue 本地登录成功后调用（替代现有 `bindInviteCodesAfterLogin`）
+**接口分工（保持 login.vue 现有实现）**：
+- `useInviteCode(code)` → POST `/zhao-channel/v1/user-invites/use` → 处理用户邀请码
+- `joinChannelByInvite(inviteCode)` → POST `/zhao-channel/v1/channel-invite/join` → 处理渠道邀请码（[channel-member.ts:271-278](file:///d:/zhao/strapi/plugins/zhao-channel/server/src/services/channel-member.ts) 已保证幂等）
+
+**调用方**：
+- login.vue 本地登录成功后调用（替代现有 `bindInviteCodesAfterLogin`，移除原 toast 提示）
 - auth-callback.vue 三方/SSO 回调成功后调用（新增）
 
 ### 9. register.vue 表单空值回退
@@ -254,16 +264,21 @@ if (resData.jwt ?? resData.token) {
 | 路径 | 后端处理 | 前端兜底 | 兜底解决的风险 |
 |------|----------|----------|---------------|
 | C 端本地注册 | `sso-auth.buildInviteRelation`（成功） | 无需 | — |
-| C 端本地登录 | 无 | `joinChannelByInvite`（login.vue 已有） | — |
-| C 端 SSO 回调 | `channel-sync.syncUserInvite`（可能失败，只 warn） | `joinChannelByInvite`（auth-callback 新增） | 风险 1 |
-| C 端 third 回调（新用户） | `createForUser`（可能失败，只 warn）；**不处理 channelInviteCode** | `joinChannelByInvite`（auth-callback 新增） | 风险 2、4 |
-| C 端 third 回调（老用户） | **不处理** | `joinChannelByInvite`（auth-callback 新增） | 风险 3 |
+| C 端本地登录 | 无 | `useInviteCode` + `joinChannelByInvite`（login.vue 已有，抽取到 utils） | — |
+| C 端 SSO 回调 | `channel-sync.syncUserInvite`（可能失败，只 warn） | `useInviteCode` + `joinChannelByInvite`（auth-callback 新增） | 风险 1 |
+| C 端 third 回调（新用户） | `createForUser`（可能失败，只 warn）；**不处理 channelInviteCode** | `useInviteCode` + `joinChannelByInvite`（auth-callback 新增） | 风险 2、4 |
+| C 端 third 回调（老用户） | **不处理** | `useInviteCode` + `joinChannelByInvite`（auth-callback 新增） | 风险 3 |
 | 后台注册 | 无 | `joinChannelByInvite`（strapi-backend 现有） | — |
+
+**接口分工**：
+- `useInviteCode(inviteCode)` → 处理用户邀请码（来自 v.joho.cn）
+- `joinChannelByInvite(channelInviteCode)` → 处理渠道邀请码（来自 h.joho.cn，幂等）
 
 **关键说明**：
 - third 路径前端 [auth-callback.vue:128](file:///d:/zhao/strapi-course/pages/auth-callback/auth-callback.vue) 仍传 inviteCode/channelInviteCode 给后端（后端可能部分处理）
 - 前端兜底是**补充**，不依赖后端是否处理成功
-- `joinChannelByInvite` 后端需保证幂等（后端已建立则 skip）
+- `joinChannelByInvite` 后端已保证幂等（[channel-member.ts:271-278](file:///d:/zhao/strapi/plugins/zhao-channel/server/src/services/channel-member.ts)）
+- `useInviteCode` 需验证幂等性（实施阶段确认 `service.useInvite` 是否检查已使用）
 
 ## 邀请码 storage 生命周期
 
