@@ -200,7 +200,9 @@ async function handleRegister() {
       username: registerForm.value.username,
       email: registerForm.value.email,
       password: registerForm.value.password,
-      inviteCode: registerForm.value.inviteCode ?? undefined,
+      // 表单优先（用户可编辑），表单空则回退 storage（防止用户清空表单丢失邀请码）
+      inviteCode: registerForm.value.inviteCode || uni.getStorageSync('inviteCode') || undefined,
+      // 渠道码始终从 storage 取（不在表单展示）
       channelInviteCode: uni.getStorageSync('channelInviteCode') || undefined
     })
     
@@ -213,6 +215,7 @@ async function handleRegister() {
       })
       
       uni.removeStorageSync('channelInviteCode')
+      uni.removeStorageSync('inviteCode')
       
       uni.hideLoading()
       uni.showToast({ title: '注册成功', icon: 'success' })
