@@ -68,6 +68,8 @@ export function isWechatBrowser(): boolean {
   const ua = navigator.userAgent.toLowerCase()
   // 1. 实现微信环境 UA 判断 micromessenger
   if (ua.includes('micromessenger')) return true
+  // 1b. 微信开发者工具 UA（含 wechatdevtools 或 miniprogram）
+  if (ua.includes('wechatdevtools') || ua.includes('miniprogram')) return true
   // 2. ΢获取跳转回调地址
   if (typeof window !== 'undefined') {
     //  跳转微信授权完整域名
