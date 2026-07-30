@@ -487,10 +487,21 @@ async function resolveWechatAutoLogin(): Promise<boolean> {
   const wechatOfficialAccountEnabled = authConfig.value?.wechatOfficialAccountEnabled
   const ssoLoginUrl = authConfig.value?.ssoLoginUrl
 
+  // 防循环：URL 带 code 时不自动跳（已在 auth-callback 处理）
+  const urlParams = new URLSearchParams(window.location.search)
+  const hashQuery = window.location.hash.split('?')[1] || ''
+  const hashParams = new URLSearchParams(hashQuery)
+  if (urlParams.get('code') || hashParams.get('code')) return false
+
   // 三方优先：直接跳微信
   if (mode === 'third' && wechatOfficialAccountEnabled) {
-    redirectToWechatAuth('snsapi_base')
-    return true
+    try {
+      await redirectToWechatAuth('snsapi_base')
+      return true
+    } catch (e) {
+      console.warn('[login] 跳转微信授权失败，降级显示登录表单:', e)
+      return false
+    }
   }
 
   // 降级 SSO：SSO 后端再跳微信

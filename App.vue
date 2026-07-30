@@ -130,6 +130,8 @@ export default {
           const state = encodeURIComponent(currentPath)
           redirectToWechatAuth('snsapi_base', state).catch(err => {
             console.warn('[App] H5 微信自动授权跳转失败:', err)
+            // 跳转失败：清除 TTL 标记，允许 login.vue 或下次重试
+            uni.removeStorageSync('h5AutoLoginAttemptedAt')
           })
         }
       }
