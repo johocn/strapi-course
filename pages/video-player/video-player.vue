@@ -146,8 +146,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, claimLessonPoints, request } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 import type { Course, Lesson, QuizQuestion } from '../../services/api'
 import ChannelPicker from '../../components/channel-picker.vue'
 
@@ -324,6 +326,18 @@ async function loadData() {
       earnedLessonIds.value = lids
       todayQuizCount.value = todayCount
     } catch {}
+
+    // 配置微信分享（课程标题、课时信息）
+    // #ifdef H5
+    if (courseDetail.value) {
+      const currentLesson = lessons.value[currentLessonIndex.value]
+      setupPageShare({
+        title: courseDetail.value.title,
+        desc: currentLesson?.title || courseDetail.value.description || '',
+        imgUrl: courseDetail.value.coverUrl,
+      })
+    }
+    // #endif
   } catch (e) {
     console.error('加载数据失败', e)
   }
@@ -778,6 +792,20 @@ function closeQuiz() {
 onMounted(() => {
   loadData()
   document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onShow(() => {
+  // H5 微信环境：刷新分享配置
+  // #ifdef H5
+  if (courseDetail.value) {
+    const currentLesson = lessons.value[currentLessonIndex.value]
+    setupPageShare({
+      title: courseDetail.value.title,
+      desc: currentLesson?.title || courseDetail.value.description || '',
+      imgUrl: courseDetail.value.coverUrl,
+    })
+  }
+  // #endif
 })
 
 onUnmounted(() => {
