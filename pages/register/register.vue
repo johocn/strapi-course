@@ -108,9 +108,16 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { register } from '../../services/api'
 import { setLoginState } from '../../utils/storage'
 import { getStoredAuthConfig, fetchAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
+
+// #ifdef H5
+import { isWechatBrowser } from '../../utils/env'
+import { redirectToWechatAuth } from '../../utils/wx-h5-login'
+// #endif
 
 const siteConfig = getStoredAuthConfig()
 
@@ -136,7 +143,7 @@ onMounted(async () => {
   }
 
   // #ifdef H5
-  // SSO 模式：直接跳转 SSO 登录，由 SSO 端处理注册
+  // 获取认证配置
   let authConfig = getStoredAuthConfig()
   if (!authConfig) {
     try {
@@ -146,6 +153,15 @@ onMounted(async () => {
       console.warn('[Register] 获取认证配置失败:', e)
     }
   }
+
+  // 已登录：直接跳首页（邀请码已在 storage，由 auth-callback 的 bindInviteCodesAfterLogin 处理）
+  const token = uni.getStorageSync('token')
+  if (token) {
+    uni.switchTab({ url: '/pages/index/index' })
+    return
+  }
+
+  // SSO 模式：跳 SSO 登录，由 SSO 端处理注册
   if (authConfig?.mode === 'sso' && authConfig?.ssoLoginUrl) {
     // SSO 模式下，若租户关闭了注册，跳登录页让 SSO 端处理（SSO 端可能有注册开关或邀请码注册）
     if (authConfig.registerEnabled === false) {
@@ -171,6 +187,38 @@ onMounted(async () => {
     window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
     return
   }
+
+  // third 模式 + 微信环境 + 公众号启用：自动跳微信静默登录
+  // 场景：用户在微信内点开邀请码注册链接，应自动静默登录，登录后回到注册页继续
+  if (isWechatBrowser() && authConfig?.mode === 'third' && authConfig?.wechatOfficialAccountEnabled) {
+    // 防循环：URL 带 code 时不跳（由 auth-callback 处理）
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('code') || hashParams.get('code')) return
+
+    // TTL 防循环：5 分钟内不重复跳
+    const attemptedAt = Number(uni.getStorageSync('h5AutoLoginAttemptedAt') || 0)
+    if (Date.now() - attemptedAt < 5 * 60 * 1000) return
+
+    uni.setStorageSync('h5AutoLoginAttemptedAt', String(Date.now()))
+    try {
+      // state 透传当前注册页路径（带邀请码），登录后 auth-callback 回到此页
+      // 回到此页时已登录，上面的 token 检测会跳首页
+      const currentPath = '/pages/register/register' + (invitecode ? `?invitecode=${invitecode}` : '')
+      const state = encodeURIComponent(currentPath)
+      await redirectToWechatAuth('snsapi_base', state)
+    } catch (e) {
+      console.warn('[Register] 跳转微信授权失败，显示注册表单:', e)
+      uni.removeStorageSync('h5AutoLoginAttemptedAt')
+    }
+    return
+  }
+  // #endif
+})
+
+onShow(() => {
+  // H5 微信环境：配置分享（标题用"注册"，其余租户兜底）
+  // #ifdef H5
+  setupPageShare({ title: '注册' })
   // #endif
 })
 

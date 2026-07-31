@@ -255,6 +255,7 @@ import { getUser, setToken, setUser, setLoginState } from '../../utils/storage'
 import { onLogout, validateLogin, isGuest as checkIsGuest } from '../../utils/auth'
 import { showShareGuide } from '../../utils/invite'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 import SharePoster from '../../components/share-poster/share-poster.vue'
 
 const siteConfig = getStoredAuthConfig()
@@ -524,6 +525,10 @@ onShow(() => {
   if (!guestMode.value) {
     loadData()
   }
+  // H5 微信环境：配置分享（标题用"个人中心"，其余租户兜底）
+  // #ifdef H5
+  setupPageShare({ title: '个人中心' })
+  // #endif
 })
 
 onUnmounted(() => {

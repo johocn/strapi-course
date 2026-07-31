@@ -336,9 +336,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { login, loginWithPassword, getUserInfo, useInviteCode, joinChannelByInvite, request } from '../../services/api'
 import { setToken, setUser, setLoginState } from '../../utils/storage'
 import { fetchAuthConfig, getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 import type { AuthConfig } from '../../services/auth-config'
 
 // #ifdef H5
@@ -621,6 +623,13 @@ onMounted(async () => {
   if (await resolveWechatAutoLogin()) {
     return
   }
+  // #endif
+})
+
+onShow(() => {
+  // H5 微信环境：配置分享（标题用"登录"，其余租户兜底）
+  // #ifdef H5
+  setupPageShare({ title: '登录' })
   // #endif
 })
 
