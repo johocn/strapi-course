@@ -138,18 +138,19 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { onShareAppMessage, onShareTimeline,onPageShow } from '@dcloudio/uni-app'
+import { onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
 import { getCourseList, getPointBalance, getCourseCategories, getInviteStats } from '../../services/api'
 import { validateLogin, getAuthUser, checkLogin } from '../../utils/auth'
 import { getImageUrl } from '../../utils/env'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 import type { Course } from '../../services/api'
 
 // #ifdef H5
 import { isWechatBrowser } from '../../utils/env'
-// H5 微信环境:用 wx-jssdk 的 setPageShare 配置分享(小程序的 onShareAppMessage 在 H5 不生效)
-if (typeof window !== 'undefined' && isWechatBrowser() && (window as any).setPageShare) {
-  ;(window as any).setPageShare({ pageUrl: `${window.location.origin}/#/pages/index/index` })
+// H5 微信环境:用 setupPageShare 配置分享(小程序的 onShareAppMessage 在 H5 不生效)
+if (typeof window !== 'undefined' && isWechatBrowser()) {
+  setupPageShare()
 }
 // #endif
 
@@ -349,9 +350,13 @@ onMounted(() => {
   checkNewUserWelcome()
 })
 
-onPageShow(() => {
+onShow(() => {
   // 每次页面显示时刷新数据（如登录后返回首页）
   refreshData()
+  // H5 微信环境：刷新分享配置（用租户配置兜底 + 登录用户附加邀请码）
+  // #ifdef H5
+  setupPageShare()
+  // #endif
 })
 
 function refreshData() {
