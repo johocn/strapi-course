@@ -29,30 +29,41 @@ export async function getWechatAuthUrl(redirectUrl: string, scope: string = 'sns
  * @param state 透传给微信的 state 参数，授权回调后会原样返回。建议编码来源页路径
  */
 export async function redirectToWechatAuth(scope: string = 'snsapi_base', state?: string): Promise<void> {
-  uni.setStorageSync('wxAuthScope', scope)
-  uni.setStorageSync('wxAuthAppType', 'official_account')
+  // 显示 loading（mask 阻止用户重复操作），跳转成功后页面卸载自然消失
+  uni.showLoading({ title: '微信登录中，请稍后...', mask: true })
 
-  const baseUrl = window.location.origin
-  const redirectUri = `${baseUrl}/api/zhao-third/v1/wechat/callback`
+  try {
+    uni.setStorageSync('wxAuthScope', scope)
+    uni.setStorageSync('wxAuthAppType', 'official_account')
 
-  const finalState = state || getCurrentPagePath()
+    const baseUrl = window.location.origin
+    const redirectUri = `${baseUrl}/api/zhao-third/v1/wechat/callback`
 
-  const res = await request(`/zhao-third/v1/third/auth-url?domain=${encodeURIComponent(SITE_DOMAIN)}`, {
-    method: 'POST',
-    data: {
-      platform: 'wechat',
-      appType: 'official_account',
-      redirectUrl: redirectUri,
-      scope,
-      state: finalState,
+    const finalState = state || getCurrentPagePath()
+
+    const res = await request(`/zhao-third/v1/third/auth-url?domain=${encodeURIComponent(SITE_DOMAIN)}`, {
+      method: 'POST',
+      data: {
+        platform: 'wechat',
+        appType: 'official_account',
+        redirectUrl: redirectUri,
+        scope,
+        state: finalState,
+      }
+    }) as any
+
+    const authUrl = res.authUrl || res.url
+    if (!authUrl) {
+      throw new Error('未获取到微信授权 URL')
     }
-  }) as any
-
-  const authUrl = res.authUrl || res.url
-  if (!authUrl) {
-    throw new Error('未获取到微信授权 URL')
+    // 成功：不 hideLoading，页面跳转自然销毁 loading
+    window.location.href = authUrl
+  } catch (error) {
+    // 失败：隐藏 loading + 提示 + rethrow 让调用方降级
+    uni.hideLoading()
+    uni.showToast({ title: '微信登录跳转失败，请重试', icon: 'none', duration: 2000 })
+    throw error
   }
-  window.location.href = authUrl
 }
 
 /**
