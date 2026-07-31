@@ -3,7 +3,7 @@
  * 从后端获取认证配置，决定前端使用哪种登录方式
  */
 import { request } from './api'
-import { SITE_DOMAIN } from '../utils/env'
+import { SITE_DOMAIN, BASE_URL } from '../utils/env'
 import { applyTheme, ThemeConfig } from '../utils/theme'
 
 export interface AuthConfig {
@@ -45,6 +45,24 @@ export interface AuthConfig {
 
   // 主题配置
   theme?: ThemeConfig
+}
+
+/**
+ * 从媒体对象或字符串中提取完整图片 URL
+ * 兼容三种格式：媒体对象 { url, provider_metadata } / 字符串路径 / 完整 URL
+ */
+function resolveMediaUrl(media: any): string {
+  if (!media) return ''
+  // 已是字符串（向后兼容）
+  if (typeof media === 'string') {
+    return media.startsWith('http') ? media : `${BASE_URL}${media}`
+  }
+  // 媒体对象：优先 OSS，其次 localUrl + BASE_URL，最后 url + BASE_URL
+  const meta = media.provider_metadata
+  if (meta?.ossUrl && meta.ossStatus === 'success') return meta.ossUrl
+  const raw = meta?.localUrl || media.url
+  if (!raw) return ''
+  return raw.startsWith('http') ? raw : `${BASE_URL}${raw}`
 }
 
 let cachedConfig: AuthConfig | null = null
@@ -121,7 +139,7 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
       favicon: data.site?.favicon ?? DEFAULT_CONFIG.favicon,
       shareTitle: data.site?.shareTitle ?? DEFAULT_CONFIG.shareTitle,
       shareDescription: data.site?.shareDescription ?? DEFAULT_CONFIG.shareDescription,
-      shareImage: data.site?.shareImage ?? DEFAULT_CONFIG.shareImage,
+      shareImage: resolveMediaUrl(data.site?.shareImage),
       sharePath: data.site?.sharePath ?? DEFAULT_CONFIG.sharePath,
 
       // 认证配置
