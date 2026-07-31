@@ -93,9 +93,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { getCourseDetail, getLessonList, getMyLessonProgresses, getPointRecordList } from '../../services/api'
 import type { Course, Lesson } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 import SharePoster from '../../components/share-poster/share-poster.vue'
 
 const course = ref<Course | null>(null)
@@ -167,6 +169,17 @@ async function loadData() {
       }
       earnedLessonIds.value = lids
     } catch (e) { console.error('[course-detail] loadPointsRecord failed:', e) }
+
+    // 配置微信分享（课程标题、简介、封面）
+    // #ifdef H5
+    if (course.value) {
+      setupPageShare({
+        title: course.value.title,
+        desc: course.value.description,
+        imgUrl: course.value.coverUrl,
+      })
+    }
+    // #endif
   } catch (e) {
     console.error('加载失败', e)
     error.value = true
@@ -207,6 +220,19 @@ onMounted(() => {
   uni.setNavigationBarTitle({ title: siteConfig?.siteName ?? '课程详情' })
   // #endif
   loadData()
+})
+
+onShow(() => {
+  // H5 微信环境：每次页面显示刷新分享配置
+  // #ifdef H5
+  if (course.value) {
+    setupPageShare({
+      title: course.value.title,
+      desc: course.value.description,
+      imgUrl: course.value.coverUrl,
+    })
+  }
+  // #endif
 })
 </script>
 
