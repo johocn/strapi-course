@@ -103,8 +103,10 @@ export default {
 
     // #ifdef H5
     // H5 微信浏览器：自动登录 + JS-SDK 初始化
+    console.log('[App][debug] isWechatBrowser=', isWechatBrowser(), 'mode=', authConfig.mode, 'officialAccountEnabled=', authConfig.wechatOfficialAccountEnabled)
     if (isWechatBrowser() && authConfig.mode === 'third' && authConfig.wechatOfficialAccountEnabled) {
       const token = uni.getStorageSync('token')
+      console.log('[App][debug] 进入微信自动登录分支, token=', token ? 'exists' : 'none')
       if (token) {
         // 已有 token：初始化 JS-SDK + 默认分享
         initJSSDK().then(() => configShareWithInvite())
@@ -124,17 +126,26 @@ export default {
         const attemptedAt = Number(uni.getStorageSync('h5AutoLoginAttemptedAt') || 0)
         const expired = Date.now() - attemptedAt > 5 * 60 * 1000
 
+        console.log('[App][debug] hasCode=', hasCode, 'onAuthCallback=', onAuthCallback, 'onAuthPage=', onAuthPage, 'expired=', expired, 'attemptedAt=', attemptedAt, 'now=', Date.now())
+
         if (!hasCode && !onAuthCallback && !onAuthPage && expired) {
           uni.setStorageSync('h5AutoLoginAttemptedAt', String(Date.now()))
           // state 编码当前路径，授权后回到来源页
           const state = encodeURIComponent(currentPath)
-          redirectToWechatAuth('snsapi_base', state).catch(err => {
+          console.log('[App][debug] 准备跳转微信授权, state=', state)
+          redirectToWechatAuth('snsapi_base', state).then(() => {
+            console.log('[App][debug] redirectToWechatAuth 成功，等待跳转')
+          }).catch(err => {
             console.warn('[App] H5 微信自动授权跳转失败:', err)
             // 跳转失败：清除 TTL 标记，允许 login.vue 或下次重试
             uni.removeStorageSync('h5AutoLoginAttemptedAt')
           })
+        } else {
+          console.log('[App][debug] 跳转条件不满足，跳过自动跳转')
         }
       }
+    } else {
+      console.log('[App][debug] 未进入微信自动登录分支')
     }
     // #endif
   },
