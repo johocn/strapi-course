@@ -625,15 +625,23 @@ onMounted(async () => {
 })
 
 // === H5 微信登录 ===
-function h5WechatQuickLogin() {
+async function h5WechatQuickLogin() {
   // #ifdef H5
-  redirectToWechatAuth('snsapi_base')
+  try {
+    await redirectToWechatAuth('snsapi_base')
+  } catch {
+    // toast 已由 redirectToWechatAuth 内部处理
+  }
   // #endif
 }
 
-function h5WechatFullLogin() {
+async function h5WechatFullLogin() {
   // #ifdef H5
-  redirectToWechatAuth('snsapi_userinfo')
+  try {
+    await redirectToWechatAuth('snsapi_userinfo')
+  } catch {
+    // toast 已由 redirectToWechatAuth 内部处理
+  }
   // #endif
 }
 
@@ -931,7 +939,9 @@ function wechatLogin() {
   
   // #ifdef H5
   if (isWechatBrowser()) {
-    redirectToWechatAuth('snsapi_base')
+    redirectToWechatAuth('snsapi_base').catch(() => {
+      // toast 已由 redirectToWechatAuth 内部处理
+    })
     return
   }
   uni.showToast({ title: '请在微信中打开', icon: 'none' })
