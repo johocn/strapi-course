@@ -141,6 +141,7 @@ let link = cfg.pageUrl
 ```typescript
 import { getStoredAuthConfig } from '../services/auth-config'
 import { getInviteCode } from './invite'
+import { getUser } from './storage'
 
 export interface PageShareInput {
   title?: string
@@ -158,13 +159,40 @@ export interface ShareConfig {
 }
 
 /**
+ * 将 inviteCode 参数附加到 URL（hash 路由兼容）
+ * uni-app H5 使用 hash 路由，URL 格式如 http://host/#/pages/index/index?key=val
+ * hash 路由的 query 参数在 # 之后，需要用 hash 单独处理
+ */
+function appendInviteCode(url: string, inviteCode: string): string {
+  if (!inviteCode) return url
+
+  // 拆分 hash 部分
+  const [origin, hash = ''] = url.split('#')
+  let path = hash
+  let query = ''
+
+  // hash 路由的 query 在 ? 之后
+  const qIdx = hash.indexOf('?')
+  if (qIdx >= 0) {
+    path = hash.substring(0, qIdx)
+    query = hash.substring(qIdx + 1)
+  }
+
+  const params = new URLSearchParams(query)
+  if (params.has('inviteCode')) return url  // 已存在不重复附加
+
+  params.set('inviteCode', inviteCode)
+  return `${origin}#${path}?${params.toString()}`
+}
+
+/**
  * 统一设置页面分享（H5 + 小程序通用）
  *
  * 优先级：
  *   - title/desc/imgUrl: 页面传入 > 租户配置(authConfig) > 空字符串
  *   - pageUrl: 页面传入 > 当前页面地址 > 租户 sharePath
  *
- * 邀请码：登录用户有 inviteCode 时，自动附加到 pageUrl
+ * 邀请码：仅登录用户（getUser() 不为 null）才附加 inviteCode
  *
  * @param input 页面分享配置（可选字段，缺失用租户配置兜底）
  * @returns 小程序端返回 ShareConfig 供 onShareAppMessage 使用；H5 端无返回
@@ -180,15 +208,12 @@ export function setupPageShare(input: PageShareInput = {}): ShareConfig | void {
   // pageUrl 优先级：页面传入 > 当前页面地址
   const pageUrl = input.pageUrl ?? window.location.href
 
-  // 附加邀请码（已登录用户）
-  const inviteCode = getInviteCode()
+  // 仅登录用户附加邀请码
+  const user = getUser()
   let finalUrl = pageUrl
-  if (inviteCode) {
-    const url = new URL(finalUrl)
-    if (!url.searchParams.has('inviteCode')) {
-      url.searchParams.set('inviteCode', inviteCode)
-      finalUrl = url.toString()
-    }
+  if (user) {
+    const inviteCode = getInviteCode()
+    finalUrl = appendInviteCode(pageUrl, inviteCode)
   }
 
   const config: ShareConfig = { title, desc, imgUrl, pageUrl: finalUrl }
@@ -210,10 +235,9 @@ export function setupPageShare(input: PageShareInput = {}): ShareConfig | void {
 | 页面 | 文件路径 | 分享数据来源 |
 |------|---------|------------|
 | 首页 | `pages/index/index.vue` | 全部用租户配置兜底，pageUrl 默认当前地址 |
-| 课程列表 | `pages/course/list.vue` | 标题用"全部课程"，其余租户兜底 |
-| 课程详情 | `pages/course/detail.vue` | title=课程标题, desc=课程简介, imgUrl=课程封面 |
-| 课时详情 | `pages/lesson/detail.vue` | title=课时标题, desc=课程标题, imgUrl=课程封面 |
-| 个人中心 | `pages/profile/index.vue` | 标题用"个人中心"，其余租户兜底 |
+| 课程详情 | `pages/course-detail/course-detail.vue` | title=课程标题, desc=课程简介, imgUrl=课程封面 |
+| 视频播放 | `pages/video-player/video-player.vue` | title=课程标题, desc=课时标题, imgUrl=课程封面 |
+| 个人中心 | `pages/profile/profile.vue` | 标题用"个人中心"，其余租户兜底 |
 | 登录页 | `pages/login/login.vue` | 标题用"登录"，其余租户兜底 |
 | 注册页 | `pages/register/register.vue` | 标题用"注册"，其余租户兜底 |
 
@@ -260,8 +284,9 @@ setupPageShare({
 
 ### 邀请码附加规则
 
-- 无论 link 来自哪一层，只要当前用户有 `inviteCode`，就在 link 末尾附加
+- 仅登录用户（`getUser()` 不为 null）才附加 inviteCode
 - 使用 URLSearchParams 检查，避免重复附加
+- hash 路由兼容：参数附加在 `#` 之后的 query 部分（如 `http://host/#/pages/index/index?inviteCode=xxx`）
 - 原 URL 已有 query 参数 → 用 `&` 连接
 - 原 URL 无 query 参数 → 用 `?` 连接
 
@@ -309,9 +334,9 @@ setupPageShare({
 - 租户未配置 → 显示 `DEFAULT_SHARE.title`
 
 **D. 邀请码附加**
-- 已登录用户分享 → URL 包含 `inviteCode=xxx`
+- 已登录用户分享 → URL hash query 包含 `inviteCode=xxx`
 - 未登录用户分享 → URL 不包含 inviteCode
-- URL 已有 query 参数 → 用 `&` 连接
+- hash 路由 URL 已有 query 参数 → 用 `&` 连接
 - URL 已包含 inviteCode → 不重复附加
 
 **E. H5 微信环境**
@@ -330,9 +355,8 @@ setupPageShare({
 | `utils/wx-jssdk.ts` | 修改 | 增强 link 逻辑，新增 resolveShareUrl |
 | `utils/share.ts` | 新建 | 统一分享辅助函数 setupPageShare |
 | `pages/index/index.vue` | 修改 | 接入 setupPageShare 替换原 setPageShare |
-| `pages/course/list.vue` | 修改 | 接入 setupPageShare |
-| `pages/course/detail.vue` | 修改 | 接入 setupPageShare |
-| `pages/lesson/detail.vue` | 修改 | 接入 setupPageShare |
-| `pages/profile/index.vue` | 修改 | 接入 setupPageShare |
+| `pages/course-detail/course-detail.vue` | 修改 | 接入 setupPageShare |
+| `pages/video-player/video-player.vue` | 修改 | 接入 setupPageShare |
+| `pages/profile/profile.vue` | 修改 | 接入 setupPageShare |
 | `pages/login/login.vue` | 修改 | 接入 setupPageShare |
 | `pages/register/register.vue` | 修改 | 接入 setupPageShare |
