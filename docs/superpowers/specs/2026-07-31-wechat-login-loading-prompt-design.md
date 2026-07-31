@@ -24,8 +24,9 @@
 | 全局自动跳转 | `App.vue` | 107-149 | onLaunch 自动 |
 | 登录页自动跳转 | `pages/login/login.vue` | 483-521 | onMounted 自动（resolveWechatAutoLogin） |
 | 登录页按钮触发 | `pages/login/login.vue` | 628-638 | 用户点击（h5WechatQuickLogin / h5WechatFullLogin） |
+| 登录页微信图标触发 | `pages/login/login.vue` | 932-938 | 用户点击（wechatLogin 函数 H5 分支） |
 
-对比：`pages/auth-callback/auth-callback.vue` 回调页有"微信登录中..."提示，但只在 OAuth 跳回后显示，不在发起跳转前显示。
+对比：`pages/auth-callback/auth-callback.vue` 回调页有"微信登录中..."提示，但只在 OAuth 跳回后显示，不在发起跳转前显示。`wechatLogin` 函数的小程序分支（第 842 行）已有 `uni.showLoading({ title: '登录中...' })`，但 H5 分支无提示。
 
 ## 设计决策
 
@@ -129,6 +130,23 @@ async function h5WechatFullLogin() {
 }
 ```
 
+#### wechatLogin 函数 H5 分支（补 catch）
+
+`wechatLogin` 是同步函数（含小程序回调逻辑，不宜整体改 async），其 H5 分支第 934 行的 fire-and-forget 调用需加 `.catch()` 防止未捕获 Promise 拒绝：
+
+```typescript
+// wechatLogin 函数内，原第 932-938 行
+// #ifdef H5
+if (isWechatBrowser()) {
+  redirectToWechatAuth('snsapi_base').catch(() => {
+    // toast 已由 redirectToWechatAuth 内部处理
+  })
+  return
+}
+uni.showToast({ title: '请在微信中打开', icon: 'none' })
+// #endif
+```
+
 ### 无需修改的文件
 
 以下调用点的现有 catch 块已正确处理降级，无需改动：
@@ -152,7 +170,8 @@ redirectToWechatAuth 内部（第一层）
        ├─ register.vue → 显示注册表单（本地注册）
        ├─ App.vue → 留在当前页（auth 守卫按需跳登录）
        ├─ login.vue resolveWechatAutoLogin → return false → 降级链继续
-       └─ login.vue h5WechatQuickLogin/FullLogin → 表单已可见，无需额外处理
+       ├─ login.vue h5WechatQuickLogin/FullLogin → 表单已可见，无需额外处理
+       └─ login.vue wechatLogin H5 分支 → 表单已可见，无需额外处理
 ```
 
 ### 与已有降级链设计的关系
@@ -191,4 +210,4 @@ redirectToWechatAuth 内部（第一层）
 | 文件 | 改动类型 | 改动量 |
 |------|----------|--------|
 | `utils/wx-h5-login.ts` | 修改 `redirectToWechatAuth` 函数 | 约 +10 行（try/catch + showLoading/toast） |
-| `pages/login/login.vue` | 修改 `h5WechatQuickLogin` / `h5WechatFullLogin` | 约 +6 行（补充 try/catch） |
+| `pages/login/login.vue` | 修改 `h5WechatQuickLogin` / `h5WechatFullLogin` / `wechatLogin` H5 分支 | 约 +12 行（补充 try/catch 与 .catch） |
