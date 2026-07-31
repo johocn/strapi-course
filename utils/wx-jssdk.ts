@@ -22,6 +22,21 @@ const DEFAULT_SHARE = {
   imgUrl: `${BASE_URL}/static/share-image.png`,
 }
 
+/**
+ * 将 sharePath 补全为完整 URL
+ * - 已带 http(s):// → 直接返回
+ * - 相对路径（如 /pages/index/index）→ 拼接 window.location.origin
+ */
+function resolveShareUrl(sharePath: string | undefined): string {
+  const base = window.location.origin
+  if (!sharePath) return base
+  if (sharePath.startsWith('http://') || sharePath.startsWith('https://')) {
+    return sharePath
+  }
+  const path = sharePath.startsWith('/') ? sharePath : `/${sharePath}`
+  return `${base}${path}`
+}
+
 /** 页面自定义分享配置 */
 export interface PageShareConfig {
   title?: string      // 页面自定义标题（如课程标题），不传用默认
@@ -142,7 +157,10 @@ export function configShareWithInvite(pageShare?: PageShareConfig): void {
   const desc = cfg.desc ?? authConfig?.shareDescription ?? DEFAULT_SHARE.desc
   const imgUrl = cfg.imgUrl ?? authConfig?.shareImage ?? DEFAULT_SHARE.imgUrl
 
-  let link = cfg.pageUrl ?? baseUrl
+  // 优先级：页面 pageUrl > 租户 sharePath（补全为完整 URL）> baseUrl
+  let link = cfg.pageUrl
+    ?? resolveShareUrl(authConfig?.sharePath)
+    ?? baseUrl
   const separator = link.includes('?') ? '&' : '?'
   const params: string[] = []
   if (inviteCode) params.push(`inviteCode=${inviteCode}`)
