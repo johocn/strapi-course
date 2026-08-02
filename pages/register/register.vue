@@ -128,7 +128,7 @@ const registerForm = ref({
   email: '',
   password: '',
   confirmPassword: '',
-  inviteCode: uni.getStorageSync('inviteCode') || ''
+  inviteCode: uni.getStorageSync('inviteCode') || uni.getStorageSync('channelInviteCode') || ''
 })
 
 // 扫码进入时从 URL hash 读取渠道邀请码
@@ -139,7 +139,10 @@ onMounted(async () => {
   const invitecode = hashParams.get('invitecode')
   if (invitecode) {
     uni.setStorageSync('channelInviteCode', invitecode)
-    registerForm.value.inviteCode = invitecode
+    // 如果表单还未设置邀请码，填充到表单
+    if (!registerForm.value.inviteCode) {
+      registerForm.value.inviteCode = invitecode
+    }
   }
 
   // #ifdef H5
@@ -168,10 +171,11 @@ onMounted(async () => {
       uni.redirectTo({ url: '/pages/login/login' })
       return
     }
-    const returnUrl = window.location.origin + '/#/pages/auth-callback/auth-callback'
+    const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
     const params = new URLSearchParams({
       app_code: authConfig.ssoAppCode || 'course',
-      return_url: returnUrl,
+      return_url: cEndCallback,
+      c_end_url: cEndCallback,
     })
     // 与 login.vue 的 redirectToSso 保持一致：同时透传 invite_code（用户码）和 channel_code（渠道码）
     // 用户码优先取 storage 的 inviteCode，其次回退到 URL 中的 invitecode（兼容旧链接）
@@ -195,11 +199,14 @@ onMounted(async () => {
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get('code') || hashParams.get('code')) return
 
-    // TTL 防循环：5 分钟内不重复跳
-    const attemptedAt = Number(uni.getStorageSync('h5AutoLoginAttemptedAt') || 0)
-    if (Date.now() - attemptedAt < 5 * 60 * 1000) return
+    // 重试次数限制：最多 2 次自动登录尝试，超过则降级显示注册表单
+    const retryCount = Number(uni.getStorageSync('h5WechatAutoLoginRetries') || 0)
+    if (retryCount >= 2) {
+      console.log('[Register] 微信自动登录已超过最大重试次数（2次），降级显示注册表单')
+      return
+    }
 
-    uni.setStorageSync('h5AutoLoginAttemptedAt', String(Date.now()))
+    uni.setStorageSync('h5WechatAutoLoginRetries', retryCount + 1)
     try {
       // state 透传当前注册页路径（带邀请码），登录后 auth-callback 回到此页
       // 回到此页时已登录，上面的 token 检测会跳首页
@@ -208,7 +215,6 @@ onMounted(async () => {
       await redirectToWechatAuth('snsapi_base', state)
     } catch (e) {
       console.warn('[Register] 跳转微信授权失败，显示注册表单:', e)
-      uni.removeStorageSync('h5AutoLoginAttemptedAt')
     }
     return
   }
@@ -230,7 +236,7 @@ const canRegister = computed(() => {
 })
 
 function goToLogin() {
-  uni.navigateBack()
+  uni.navigateTo({ url: '/pages/login/login' })
 }
 
 async function handleRegister() {
@@ -244,14 +250,25 @@ async function handleRegister() {
   uni.showLoading({ title: '注册中...' })
   
   try {
+    // 判断邀请码来源，避免重复发送
+    const storedInviteCode = uni.getStorageSync('inviteCode') || ''
+    const storedChannelInviteCode = uni.getStorageSync('channelInviteCode') || ''
+    const formInviteCode = registerForm.value.inviteCode || ''
+
+    // 渠道码始终从 storage 取（不依赖表单）
+    const channelInviteCode = storedChannelInviteCode || undefined
+    // 如果表单值与渠道码相同，说明是渠道码自动填充，不作为用户邀请码发送
+    const isFormValueFromChannel = !!storedChannelInviteCode && formInviteCode === storedChannelInviteCode
+    const inviteCode = isFormValueFromChannel
+      ? (storedInviteCode || undefined)
+      : (formInviteCode || storedInviteCode || undefined)
+
     const res = await register({
       username: registerForm.value.username,
       email: registerForm.value.email,
       password: registerForm.value.password,
-      // 表单优先（用户可编辑），表单空则回退 storage（防止用户清空表单丢失邀请码）
-      inviteCode: registerForm.value.inviteCode || uni.getStorageSync('inviteCode') || undefined,
-      // 渠道码始终从 storage 取（不在表单展示）
-      channelInviteCode: uni.getStorageSync('channelInviteCode') || undefined
+      inviteCode,
+      channelInviteCode
     })
     
     const resData = res as any

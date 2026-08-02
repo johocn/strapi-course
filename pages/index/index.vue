@@ -12,7 +12,7 @@
         </view>
         <view class="header-top">
           <view class="header-left">
-            <text class="header-title">🎓 全部课程</text>
+            <text class="header-title">{{ siteConfig?.siteName || '全部课程' }}</text>
             <text class="header-subtitle">学习课程，答题赢积分</text>
           </view>
           <view class="header-right">
@@ -365,6 +365,7 @@ function refreshData() {
   loadCourses()
   loadPointBalance()
   loadInviteCode()
+  siteConfig.value = getStoredAuthConfig()
 }
 
 // 微信分享（携带邀请码）
@@ -568,7 +569,7 @@ onShareTimeline(() => {
 
 .search-bar {
   display: flex;
-  margin: -30rpx 30rpx 20rpx;
+  margin: 20rpx 30rpx 20rpx;
   background: #fff;
   border-radius: 40rpx;
   padding: 0 20rpx;

@@ -94,6 +94,7 @@ async function handleOAuthCallback() {
       uni.removeStorageSync('wxAuthScope')
       uni.removeStorageSync('wxAuthAppType')
       uni.removeStorageSync('h5AutoLoginAttemptedAt')
+      uni.removeStorageSync('h5WechatAutoLoginRetries')
 
       setTimeout(() => {
         if (state) {
@@ -154,6 +155,7 @@ async function handleOAuthCallback() {
       uni.removeStorageSync('wxAuthScope')
       uni.removeStorageSync('wxAuthAppType')
       uni.removeStorageSync('h5AutoLoginAttemptedAt')
+      uni.removeStorageSync('h5WechatAutoLoginRetries')
 
       setTimeout(() => {
         if (state) {

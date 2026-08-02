@@ -102,50 +102,98 @@ export default {
     // #endif
 
     // #ifdef H5
-    // H5 微信浏览器：自动登录 + JS-SDK 初始化
+    // H5 微信浏览器：自动登录（按优先级 SSO → third → local）
     console.log('[App][debug] isWechatBrowser=', isWechatBrowser(), 'mode=', authConfig.mode, 'officialAccountEnabled=', authConfig.wechatOfficialAccountEnabled)
-    if (isWechatBrowser() && authConfig.mode === 'third' && authConfig.wechatOfficialAccountEnabled) {
+    if (isWechatBrowser()) {
       const token = uni.getStorageSync('token')
       console.log('[App][debug] 进入微信自动登录分支, token=', token ? 'exists' : 'none')
+
+      // 防循环检查通用条件
+      const urlParams = new URLSearchParams(window.location.search)
+      const hashQuery = window.location.hash.split('?')[1] || ''
+      const hashParams = new URLSearchParams(hashQuery)
+      const hasCode = urlParams.get('code') || hashParams.get('code')
+
+      const currentPath = window.location.hash.replace(/^#/, '').split('?')[0] || '/pages/index/index'
+      const onAuthCallback = currentPath.startsWith('/pages/auth-callback/auth-callback')
+      // 注册页/登录页：用户已主动进入登录注册流程，不自动跳（由页面自身 onMounted 处理）
+      const onAuthPage = currentPath.startsWith('/pages/register/register') || currentPath.startsWith('/pages/login/login')
+
+      // 已登录：初始化 JS-SDK + 默认分享
       if (token) {
-        // 已有 token：初始化 JS-SDK + 默认分享
         initJSSDK().then(() => configShareWithInvite())
-      } else {
-        // 无 token：自动触发 snsapi_base 静默登录
-        // 防循环 5 重检查：URL 不带 code + 不在 auth-callback 页 + 5 分钟 TTL 内未尝试过 + 不在注册/登录页
-        const urlParams = new URLSearchParams(window.location.search)
-        const hashQuery = window.location.hash.split('?')[1] || ''
-        const hashParams = new URLSearchParams(hashQuery)
-        const hasCode = urlParams.get('code') || hashParams.get('code')
+        return
+      }
 
-        const currentPath = window.location.hash.replace(/^#/, '').split('?')[0] || '/pages/index/index'
-        const onAuthCallback = currentPath.startsWith('/pages/auth-callback/auth-callback')
-        // 注册页/登录页：用户已主动进入登录注册流程，不自动跳微信
-        const onAuthPage = currentPath.startsWith('/pages/register/register') || currentPath.startsWith('/pages/login/login')
+      // 未登录，按优先级自动跳转
+      const mode = authConfig.mode || 'local'
 
-        const attemptedAt = Number(uni.getStorageSync('h5AutoLoginAttemptedAt') || 0)
-        const expired = Date.now() - attemptedAt > 5 * 60 * 1000
+      // 优先级 1：SSO 模式 → 自动跳 SSO 统一登录
+      // 在 App.vue 直接跳转，避免用户看到页面闪烁后再跳
+      if (mode === 'sso' && authConfig.ssoLoginUrl) {
+        // return_url 和 c_end_url 都指向 C 端 auth-callback 页面
+        // SSO 认证完成后，login-callback.vue 直接携带 token 跳回 C 端 auth-callback 写入登录态
+        const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
+        const params = new URLSearchParams({
+          app_code: authConfig.ssoAppCode || 'course',
+          return_url: cEndCallback,
+          c_end_url: cEndCallback,
+        })
+        const userInviteCode = uni.getStorageSync('inviteCode') || ''
+        const channelInvite = uni.getStorageSync('channelInviteCode') || ''
+        if (userInviteCode) params.append('invite_code', userInviteCode)
+        if (channelInvite) params.append('channel_code', channelInvite)
+        const sep = authConfig.ssoLoginUrl.includes('?') ? '&' : '?'
+        window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
+        return
+      }
 
-        console.log('[App][debug] hasCode=', hasCode, 'onAuthCallback=', onAuthCallback, 'onAuthPage=', onAuthPage, 'expired=', expired, 'attemptedAt=', attemptedAt, 'now=', Date.now())
-
-        if (!hasCode && !onAuthCallback && !onAuthPage && expired) {
-          uni.setStorageSync('h5AutoLoginAttemptedAt', String(Date.now()))
-          // state 编码当前路径，授权后回到来源页
-          const state = encodeURIComponent(currentPath)
-          console.log('[App][debug] 准备跳转微信授权, state=', state)
-          redirectToWechatAuth('snsapi_base', state).then(() => {
-            console.log('[App][debug] redirectToWechatAuth 成功，等待跳转')
-          }).catch(err => {
-            console.warn('[App] H5 微信自动授权跳转失败:', err)
-            // 跳转失败：清除 TTL 标记，允许 login.vue 或下次重试
-            uni.removeStorageSync('h5AutoLoginAttemptedAt')
-          })
+      // 优先级 2：third 模式 + 公众号启用 → 微信静默登录
+      if (mode === 'third' && authConfig.wechatOfficialAccountEnabled) {
+        if (token) {
+          initJSSDK().then(() => configShareWithInvite())
         } else {
-          console.log('[App][debug] 跳转条件不满足，跳过自动跳转')
+          // 重试次数限制：最多 2 次
+          const retryCount = Number(uni.getStorageSync('h5WechatAutoLoginRetries') || 0)
+          const maxRetriesReached = retryCount >= 2
+
+          console.log('[App][debug] hasCode=', hasCode, 'onAuthCallback=', onAuthCallback, 'onAuthPage=', onAuthPage, 'retryCount=', retryCount, 'maxRetriesReached=', maxRetriesReached)
+
+          if (!hasCode && !onAuthCallback && !onAuthPage && !maxRetriesReached) {
+            uni.setStorageSync('h5WechatAutoLoginRetries', retryCount + 1)
+            // state 编码当前路径，授权后回到来源页
+            const state = encodeURIComponent(currentPath)
+            console.log('[App][debug] 准备跳转微信授权 (第' + (retryCount + 1) + '次), state=', state)
+            redirectToWechatAuth('snsapi_base', state).then(() => {
+              console.log('[App][debug] redirectToWechatAuth 成功，等待跳转')
+            }).catch(err => {
+              console.warn('[App] H5 微信自动授权跳转失败:', err)
+            })
+          } else {
+            console.log('[App][debug] 跳转条件不满足，跳过自动跳转')
+          }
         }
+      } else {
+        console.log('[App][debug] 非 third 模式，跳过微信自动跳转')
       }
     } else {
-      console.log('[App][debug] 未进入微信自动登录分支')
+      // 非微信环境：如果 SSO 模式，也自动跳转（PC 浏览器场景）
+      if (mode === 'sso' && authConfig.ssoLoginUrl) {
+        const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
+        const params = new URLSearchParams({
+          app_code: authConfig.ssoAppCode || 'course',
+          return_url: cEndCallback,
+          c_end_url: cEndCallback,
+        })
+        const userInviteCode = uni.getStorageSync('inviteCode') || ''
+        const channelInvite = uni.getStorageSync('channelInviteCode') || ''
+        if (userInviteCode) params.append('invite_code', userInviteCode)
+        if (channelInvite) params.append('channel_code', channelInvite)
+        const sep = authConfig.ssoLoginUrl.includes('?') ? '&' : '?'
+        window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
+        return
+      }
+      console.log('[App][debug] 非微信环境，跳过自动登录')
     }
     // #endif
   },

@@ -21,7 +21,7 @@
     </view>
 
     <!-- third 模式 + 微信小程序环境：自动登录中 -->
-    <view v-if="wechatLoginEnabled && isWechat && !isH5Wechat" class="login-form">
+    <view v-if="authMode === 'third' && isWechat && !isH5Wechat" class="login-form">
       <view class="form-title">
         <text>{{ autoLoginDone ? '登录成功' : '正在自动登录...' }}</text>
       </view>
@@ -59,7 +59,7 @@
     </view>
 
     <!-- third 模式 + H5 微信浏览器环境：选择登录方式 -->
-    <view v-else-if="wechatLoginEnabled && isH5Wechat" class="login-form">
+    <view v-else-if="authMode === 'third' && isH5Wechat" class="login-form">
       <view class="form-title">
         <text>微信快捷登录</text>
       </view>
@@ -259,7 +259,7 @@
         <text class="guest-text">游客体验</text>
       </view>
 
-      <view  class="register-link" @click="goToRegister">
+      <view v-if="registerEnabled" class="register-link" @click="goToRegister">
         <text>没有账号？<text class="link">立即注册</text></text>
       </view>
 
@@ -269,7 +269,7 @@
     </view>
 
     <!-- PC 扫码登录（third 模式 + 非微信 H5 环境 + 开放平台已配置） -->
-    <view v-if="wechatLoginEnabled && isH5 && !isH5Wechat && openPlatformEnabled" class="login-form" style="margin-top: 30rpx;">
+    <view v-if="authMode === 'third' && isH5 && !isH5Wechat && openPlatformEnabled" class="login-form" style="margin-top: 30rpx;">
       <view class="form-title">
         <text>微信扫码登录</text>
       </view>
@@ -296,7 +296,7 @@
         </view>
         <view class="login-tabs">
           <view :class="['tab-item', { active: loginType === 'password' }]" @click="loginType = 'password'">
-            <text>账号密码</text>
+            <text>用账号密码登录</text>
           </view>
         </view>
         <view v-if="loginType === 'password'">
@@ -336,30 +336,21 @@
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
 import { login, loginWithPassword, getUserInfo, useInviteCode, joinChannelByInvite, request } from '../../services/api'
 import { setToken, setUser, setLoginState } from '../../utils/storage'
 import { fetchAuthConfig, getStoredAuthConfig } from '../../services/auth-config'
-import { setupPageShare } from '../../utils/share'
 import type { AuthConfig } from '../../services/auth-config'
 
 // #ifdef H5
 import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import { getQrconnectUrl as fetchQrconnectUrl, redirectToOpenPlatformAuth as doRedirectToOpenPlatformAuth } from '../../utils/wx-open-platform-login'
-import { bindInviteCodesAfterLogin as doBindInviteCodes } from '../../utils/invite'
 // #endif
 
 // === 认证配置状态 ===
 const authConfig = ref<AuthConfig | null>(null)
 const authMode = computed(() => authConfig.value?.mode ?? 'local')
 const registerEnabled = computed(() => authConfig.value?.registerEnabled !== false)
-// 微信登录是否启用（综合判断：methods 含 wechat 或 thirdPartyEnabled 或 mode=third）
-const wechatLoginEnabled = computed(() =>
-  authConfig.value?.methods?.includes('wechat') === true
-  || authConfig.value?.thirdPartyEnabled === true
-  || authMode.value === 'third'
-)
 
 // 检测运行环境
 const isWechat = computed(() => {
@@ -432,96 +423,6 @@ const canLogin = computed(() => {
   }
 })
 
-// === 降级链决策：返回有序的可用登录方式 ===
-interface LoginOption {
-  key: 'wechat-mp' | 'wechat-h5' | 'wechat-pc' | 'sso' | 'local'
-  priority: number      // 1=最高
-  autoTrigger: boolean  // 是否自动触发（无需用户点击）
-  available: boolean
-}
-
-function resolveLoginChain(): LoginOption[] {
-  const options: LoginOption[] = []
-  const mode = authConfig.value?.mode || 'local'
-  const ssoLoginUrl = authConfig.value?.ssoLoginUrl || ''
-  const wechatOfficialAccountEnabled = authConfig.value?.wechatOfficialAccountEnabled
-  const wechatOpenPlatformEnabled = authConfig.value?.wechatOpenPlatformEnabled
-  const wechatMiniProgramEnabled = authConfig.value?.wechatMiniProgramEnabled
-
-  // #ifdef MP-WEIXIN
-  // 微信小程序：third 可用 → silentLogin
-  if (mode === 'third' && wechatMiniProgramEnabled) {
-    options.push({ key: 'wechat-mp', priority: 1, autoTrigger: true, available: true })
-  }
-  // #endif
-
-  // #ifdef H5
-  // H5 微信浏览器：third 可用 + 公众号 → snsapi_base 自动跳
-  if (isWechatBrowser() && mode === 'third' && wechatOfficialAccountEnabled) {
-    options.push({ key: 'wechat-h5', priority: 1, autoTrigger: true, available: true })
-  }
-  // H5 微信浏览器：third 不可用 + SSO 可用 → 自动跳 SSO（SSO 后端再跳微信）
-  if (isWechatBrowser() && !wechatOfficialAccountEnabled && ssoLoginUrl) {
-    options.push({ key: 'sso', priority: 1, autoTrigger: true, available: true })
-  }
-  // H5 非微信浏览器：third 可用 + 开放平台 → PC 扫码
-  if (!isWechatBrowser() && mode === 'third' && wechatOpenPlatformEnabled) {
-    options.push({ key: 'wechat-pc', priority: 1, autoTrigger: false, available: true })
-  }
-  // H5 非微信浏览器：third 不可用 + SSO 可用 → SSO 入口
-  if (!isWechatBrowser() && mode !== 'third' && ssoLoginUrl) {
-    options.push({ key: 'sso', priority: 2, autoTrigger: false, available: true })
-  }
-  // #endif
-
-  // 兜底：本地表单（优先级最低）
-  options.push({ key: 'local', priority: 99, autoTrigger: false, available: true })
-
-  // 按优先级排序
-  return options.sort((a, b) => a.priority - b.priority)
-}
-
-// === 微信环境自动登录决策（优先级高于 mode） ===
-async function resolveWechatAutoLogin(): Promise<boolean> {
-  // #ifdef H5
-  if (!isWechatBrowser()) return false
-
-  const mode = authConfig.value?.mode || 'local'
-  const wechatOfficialAccountEnabled = authConfig.value?.wechatOfficialAccountEnabled
-  const ssoLoginUrl = authConfig.value?.ssoLoginUrl
-
-  // 防循环：URL 带 code 时不自动跳（已在 auth-callback 处理）
-  const urlParams = new URLSearchParams(window.location.search)
-  const hashQuery = window.location.hash.split('?')[1] || ''
-  const hashParams = new URLSearchParams(hashQuery)
-  if (urlParams.get('code') || hashParams.get('code')) return false
-
-  // 三方优先：直接跳微信
-  if (mode === 'third' && wechatOfficialAccountEnabled) {
-    try {
-      await redirectToWechatAuth('snsapi_base')
-      return true
-    } catch (e) {
-      console.warn('[login] 跳转微信授权失败，降级显示登录表单:', e)
-      return false
-    }
-  }
-
-  // 降级 SSO：SSO 后端再跳微信
-  if (!wechatOfficialAccountEnabled && ssoLoginUrl) {
-    redirectToSso()
-    return true
-  }
-
-  // 都不可用 → 显示本地表单 + 微信按钮
-  return false
-  // #endif
-
-  // #ifndef H5
-  return false
-  // #endif
-}
-
 // === 初始化：获取认证配置 + 邀请码处理 ===
 onMounted(async () => {
   // 优先从 storage 读取（App onLaunch 已获取过）
@@ -586,17 +487,46 @@ onMounted(async () => {
   }
   // #endif
 
-  // H5 微信浏览器环境：检查是否已登录
+  // H5 微信浏览器环境：自动登录（按优先级 SSO → third → local）
   // #ifdef H5
-  if (isWechatBrowser() && authConfig.value?.mode === 'third' && authConfig.value?.wechatOfficialAccountEnabled) {
+  if (isWechatBrowser()) {
     const token = uni.getStorageSync('token')
     if (token) {
-      // 已登录（App.vue 已完成自动登录），直接跳转首页
+      // 已登录，直接跳转首页
       setTimeout(() => {
         uni.switchTab({ url: '/pages/index/index' })
       }, 500)
+      return
     }
-    // 未登录时不做处理，让用户选择登录方式
+
+    // 未登录，按优先级自动跳转
+    const mode = authConfig.value?.mode || 'local'
+
+    // 优先级 1：SSO 模式 → 自动跳 SSO 统一登录
+    if (mode === 'sso' && authConfig.value?.ssoLoginUrl) {
+      redirectToSso()
+      return
+    }
+
+    // 优先级 2：third 模式 + 公众号启用 → 自动跳微信静默登录
+    if (mode === 'third' && authConfig.value?.wechatOfficialAccountEnabled) {
+      // 防循环：URL 带 code 时不跳
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.get('code')) return
+
+      // 重试次数限制：最多 2 次
+      const retryCount = Number(uni.getStorageSync('h5WechatAutoLoginRetries') || 0)
+      if (retryCount >= 2) {
+        console.log('[Login] 微信自动登录已超过最大重试次数（2次），降级显示登录表单')
+        return
+      }
+
+      uni.setStorageSync('h5WechatAutoLoginRetries', retryCount + 1)
+      redirectToWechatAuth('snsapi_base')
+      return
+    }
+
+    // 优先级 3：local 模式 → 显示本地登录表单（不做自动跳转）
   }
 
   // H5 非微信浏览器环境：检查开放平台扫码登录
@@ -610,85 +540,54 @@ onMounted(async () => {
         const redirectUrl = `${baseUrl}/#/pages/auth-callback/auth-callback`
         const result = await fetchQrconnectUrl(redirectUrl)
         qrconnectUrl.value = result.qrconnectUrl
-        // 标记 appType，扫码后 auth-callback 会从 storage 读取并以 open_platform 调 /third/callback
-        // 与 redirectToOpenPlatformAuth（跳转模式）保持一致
-        uni.setStorageSync('wxAuthAppType', 'open_platform')
       }
     } catch {
       // 开放平台未配置，忽略
     }
   }
-
-  // 微信环境自动跳转（降级链决策，优先级高于 mode）
-  if (await resolveWechatAutoLogin()) {
-    return
-  }
-  // #endif
-})
-
-onShow(() => {
-  // H5 微信环境：配置分享（标题用"登录"，其余租户兜底）
-  // #ifdef H5
-  setupPageShare({ title: '登录' })
   // #endif
 })
 
 // === H5 微信登录 ===
-async function h5WechatQuickLogin() {
+function h5WechatQuickLogin() {
   // #ifdef H5
-  try {
-    await redirectToWechatAuth('snsapi_base')
-  } catch {
-    // toast 已由 redirectToWechatAuth 内部处理
-  }
+  redirectToWechatAuth('snsapi_base')
   // #endif
 }
 
-async function h5WechatFullLogin() {
+function h5WechatFullLogin() {
   // #ifdef H5
-  try {
-    await redirectToWechatAuth('snsapi_userinfo')
-  } catch {
-    // toast 已由 redirectToWechatAuth 内部处理
-  }
+  redirectToWechatAuth('snsapi_userinfo')
   // #endif
 }
 
-// === SSO 登录跳转 ===
+// === SSO 登录跳转（携带邀请码参数） ===
 function redirectToSso() {
-  const ssoLoginUrl = authConfig.value?.ssoLoginUrl
-  if (!ssoLoginUrl) {
+  const ssoUrl = authConfig.value?.ssoLoginUrl
+  if (ssoUrl) {
+    // #ifdef H5
+    // return_url 和 c_end_url 都指向 C 端 auth-callback 页面
+    // SSO 认证完成后，login-callback.vue 直接携带 token 跳回 C 端 auth-callback 写入登录态
+    const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
+    const params = new URLSearchParams({
+      app_code: authConfig.value?.ssoAppCode || 'course',
+      return_url: cEndCallback,
+      c_end_url: cEndCallback,
+    })
+    // 透传邀请码（与 register.vue 保持一致）
+    const userInviteCode = uni.getStorageSync('inviteCode') || ''
+    const channelInvite = uni.getStorageSync('channelInviteCode') || ''
+    if (userInviteCode) params.append('invite_code', userInviteCode)
+    if (channelInvite) params.append('channel_code', channelInvite)
+    const sep = ssoUrl.includes('?') ? '&' : '?'
+    window.location.href = `${ssoUrl}${sep}${params.toString()}`
+    // #endif
+    // #ifndef H5
+    uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })
+    // #endif
+  } else {
     uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
-    return
   }
-  // #ifdef H5
-  // return_url 不再手动 encodeURIComponent，URLSearchParams 会自动编码一次；
-  // SSO 登录页/回调页用 decodeURIComponent 解码一次即可，避免双重编码
-  const returnUrl = window.location.origin + '/#/pages/auth-callback/auth-callback'
-  const appCode = authConfig.value?.ssoAppCode || 'course'
-  // 同时透传用户邀请码和渠道邀请码，避免 SSO 端无法建立分销关系
-  const userInviteCode = inviteCode.value || ''
-  const channelInvite = channelInviteCode.value || ''
-  const params = new URLSearchParams({
-    app_code: appCode,
-    return_url: returnUrl,
-  })
-  if (userInviteCode) params.append('invite_code', userInviteCode)
-  if (channelInvite) params.append('channel_code', channelInvite)
-  // 透传调试参数 debugWx，便于本地端到端模拟微信环境
-  if (typeof window !== 'undefined') {
-    const searchParams = new URLSearchParams(window.location.search)
-    const hashQuery = window.location.hash.split('?')[1] || ''
-    const hashParams = new URLSearchParams(hashQuery)
-    const debugWx = searchParams.get('debugWx') || hashParams.get('debugWx')
-    if (debugWx === '1') params.append('debugWx', '1')
-  }
-  const sep = ssoLoginUrl.includes('?') ? '&' : '?'
-  window.location.href = `${ssoLoginUrl}${sep}${params.toString()}`
-  // #endif
-  // #ifndef H5
-  uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })
-  // #endif
 }
 
 // === 开放平台扫码登录（跳转模式） ===
@@ -785,7 +684,7 @@ async function handleLogin() {
       })
 
       // 绑定邀请码（用户邀请码和渠道邀请码）
-      await bindInviteCodesAfterLogin()
+      await bindInviteCodesAfterLogin(resData.user?.id)
 
       uni.hideLoading()
       uni.showToast({ title: '登录成功', icon: 'success' })
@@ -848,9 +747,47 @@ async function handleLogin() {
   }
 }
 
-// === 绑定邀请码（调用统一兜底函数） ===
-async function bindInviteCodesAfterLogin() {
-  await doBindInviteCodes()
+// === 绑定邀请码 ===
+async function bindInviteCodesAfterLogin(userId: number) {
+  // 绑定用户邀请码
+  if (inviteCode.value) {
+    try {
+      await useInviteCode(inviteCode.value)
+      console.log('[Login] User invite code bound successfully:', inviteCode.value)
+      uni.removeStorageSync('inviteCode')
+
+      uni.showToast({
+        title: '邀请码绑定成功',
+        icon: 'success'
+      })
+    } catch (e) {
+      console.error('[Login] Failed to bind user invite code:', e)
+      uni.showToast({
+        title: '邀请码绑定失败，请稍后重试',
+        icon: 'none'
+      })
+    }
+  }
+
+  // 绑定渠道邀请码
+  if (channelInviteCode.value) {
+    try {
+      await joinChannelByInvite(channelInviteCode.value)
+      console.log('[Login] Channel invite code bound successfully:', channelInviteCode.value)
+      uni.removeStorageSync('channelInviteCode')
+
+      uni.showToast({
+        title: '已成功加入渠道',
+        icon: 'success'
+      })
+    } catch (e) {
+      console.error('[Login] Failed to join channel:', e)
+      uni.showToast({
+        title: '渠道邀请失败，请稍后重试',
+        icon: 'none'
+      })
+    }
+  }
 }
 
 // === 微信登录（非微信环境降级使用） ===
@@ -948,9 +885,7 @@ function wechatLogin() {
   
   // #ifdef H5
   if (isWechatBrowser()) {
-    redirectToWechatAuth('snsapi_base').catch(() => {
-      // toast 已由 redirectToWechatAuth 内部处理
-    })
+    redirectToWechatAuth('snsapi_base')
     return
   }
   uni.showToast({ title: '请在微信中打开', icon: 'none' })
