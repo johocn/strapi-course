@@ -42,6 +42,12 @@
       </view>
     </view>
 
+    <!-- 跑马灯公告栏 -->
+    <notice-bar position="home-notice" />
+
+    <!-- 广告幻灯片 -->
+    <ad-banner position="home-banner" />
+
     <!-- 搜索栏 -->
     <view class="search-bar">
       <input 
@@ -69,82 +75,84 @@
       </scroll-view>
     </view>
 
-    <!-- 课程列表 -->
-    <view class="course-list">
-      <view 
-        v-for="course in courseList" 
-        :key="course.documentId" 
-        class="course-card"
-        @click="goToCourseDetail(course.documentId)"
-      >
-        <!-- 课程封面 -->
-        <view class="course-cover">
-          <image 
-            v-if="course.cover?.url" 
-            :src="getImageUrl(course.cover.url)" 
-            mode="aspectFill" 
-            class="cover-image"
-          />
-          <view v-else class="cover-placeholder">📚</view>
-          
-          <!-- 付费/免费标签 -->
-          <view class="course-badge">
-            <text v-if="course.isPaid && !course.isFree" class="badge-paid">付费</text>
-            <text v-else-if="course.isFree" class="badge-free">免费</text>
-          </view>
-          
-          <!-- 积分标签 -->
-          <view v-if="course.enablePoints && course.points > 0" class="points-badge">
-            <text>+{{ course.points }}积分</text>
-          </view>
-        </view>
-        
-        <!-- 课程信息 -->
-        <view class="course-info">
-          <text class="course-title">{{ course.title }}</text>
-          <text class="course-desc">{{ course.description || '暂无课程描述' }}</text>
-          
-          <!-- 课程元信息 -->
-          <view class="course-meta">
-            <view class="meta-left">
-              <text class="meta-item">📖 {{ course.category?.name || '综合' }}</text>
-              <text class="meta-item" v-if="course.difficulty">🎯 {{ getDifficultyText(course.difficulty) }}</text>
-            </view>
-            <text class="meta-item" v-if="course.studentCount">👥 {{ course.studentCount }}人学习</text>
-          </view>
-          
-          <!-- 操作按钮 -->
-          <view class="course-action">
-            <text class="action-btn">
-              {{ course.isPaid && !course.isFree ? '立即购买' : '开始学习' }}
-            </text>
-          </view>
-        </view>
-      </view>
-      
-      <!-- 空状态 -->
-      <view v-if="!loading && courseList.length === 0" class="empty-state">
-        <text class="empty-icon">📚</text>
-        <text class="empty-text">暂无课程</text>
-      </view>
+    <!-- 快捷过滤芯片条 -->
+    <course-filter-chips
+      v-model="priceType"
+      :filter-state="filterState"
+      @open-drawer="drawerVisible = true"
+    />
+
+    <!-- 排序 + 视图切换条 -->
+    <course-sort-bar
+      v-model="sortKey"
+      :view-mode="viewMode"
+      :show-rating="false"
+      @update:view-mode="handleViewModeChange"
+    />
+
+    <!-- 已选条件 + 结果计数 + 空状态 -->
+    <course-active-filters
+      :filters="filterState"
+      :price-type="priceType"
+      :category="activeCategory"
+      :category-list="categories"
+      :tags="tagList"
+      :total="totalCourses"
+      :has-result="courseList.length > 0"
+      @remove="handleRemoveFilter"
+      @clear-all="handleClearAll"
+    />
+
+    <!-- 课程列表（Grid/List 双模式） -->
+    <view v-if="courseList.length > 0" :class="['course-list', viewMode === 'grid' ? 'course-list--grid' : 'course-list--list']">
+      <course-card
+        v-for="course in courseList"
+        :key="course.documentId"
+        :course="course"
+        :mode="viewMode"
+        @click="goToCourseDetail"
+      />
     </view>
 
     <!-- 加载状态 -->
     <view v-if="loading" class="loading">
       <text>加载中...</text>
     </view>
+
+    <!-- 筛选弹层 -->
+    <course-filter-drawer
+      v-model:visible="drawerVisible"
+      v-model="filterState"
+      :tags="tagList"
+      @apply="handleApplyFilter"
+      @reset="handleResetFilter"
+    />
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
-import { getCourseList, getPointBalance, getCourseCategories, getInviteStats } from '../../services/api'
+import { getCourseList, getPointBalance, getCourseCategories, getInviteStats, getTags } from '../../services/api'
 import { validateLogin, getAuthUser, checkLogin } from '../../utils/auth'
 import { getImageUrl } from '../../utils/env'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
-import type { Course } from '../../services/api'
+import type { Course, Tag } from '../../services/api'
+import {
+  DEFAULT_FILTER_STATE,
+  parseUrlQuery,
+  buildUrlQuery,
+  type SortKey,
+  type ViewMode,
+  type PriceType,
+  type CourseFilterState
+} from '../../utils/course-query'
+import CourseCard from '../../components/course-card/course-card.vue'
+import CourseSortBar from '../../components/course-sort-bar/course-sort-bar.vue'
+import CourseFilterChips from '../../components/course-filter-chips/course-filter-chips.vue'
+import CourseFilterDrawer from '../../components/course-filter-drawer/course-filter-drawer.vue'
+import CourseActiveFilters from '../../components/course-active-filters/course-active-filters.vue'
 
 // #ifdef H5
 import { isWechatBrowser } from '../../utils/env'
@@ -166,6 +174,140 @@ const siteConfig = ref<any>(null)
 // 首登欢迎提示（auth-callback 写入 isNewUser=1 时触发）
 const showWelcome = ref(false)
 let welcomeTimer: any = null
+
+// 视图/排序/过滤状态
+const viewMode = ref<ViewMode>('grid')
+const sortKey = ref<SortKey>('default')
+const priceType = ref<PriceType>('all')
+const filterState = ref<CourseFilterState>({ ...DEFAULT_FILTER_STATE })
+const drawerVisible = ref(false)
+const tagList = ref<Tag[]>([])
+const totalCourses = ref(0)
+
+// 防抖计时器
+let debounceTimer: any = null
+
+// ===== 状态持久化 =====
+
+/** 从 URL query 或 localStorage 恢复状态 */
+function restoreState() {
+  // 1. H5 优先读 URL query
+  // #ifdef H5
+  const urlQuery = window.location.search.slice(1)
+  if (urlQuery) {
+    const parsed = parseUrlQuery(urlQuery)
+    if (parsed.viewMode) viewMode.value = parsed.viewMode
+    if (parsed.sort) sortKey.value = parsed.sort
+    if (parsed.category) activeCategory.value = parsed.category
+    if (parsed.priceType) priceType.value = parsed.priceType
+    if (parsed.filter) {
+      filterState.value = {
+        ...DEFAULT_FILTER_STATE,
+        ...parsed.filter
+      }
+    }
+    if (parsed.q) searchKeyword.value = parsed.q
+    return
+  }
+  // #endif
+
+  // 2. 回退 localStorage
+  const savedView = uni.getStorageSync('course_view_mode')
+  if (savedView === 'grid' || savedView === 'list') {
+    viewMode.value = savedView
+  }
+
+  const savedFilter = uni.getStorageSync('course_filter_state')
+  if (savedFilter) {
+    try {
+      const parsed = JSON.parse(savedFilter)
+      filterState.value = { ...DEFAULT_FILTER_STATE, ...parsed.filter }
+      if (parsed.sort) sortKey.value = parsed.sort
+      if (parsed.priceType) priceType.value = parsed.priceType
+      if (parsed.category) activeCategory.value = parsed.category
+    } catch (e) {
+      console.warn('恢复过滤状态失败', e)
+    }
+  }
+}
+
+/** 同步状态到 URL query（H5）+ localStorage */
+function persistState() {
+  // H5: URL query
+  // #ifdef H5
+  const query = buildUrlQuery({
+    viewMode: viewMode.value,
+    sort: sortKey.value,
+    category: activeCategory.value,
+    priceType: priceType.value,
+    filter: filterState.value,
+    q: searchKeyword.value
+  })
+  history.replaceState(null, '', `?${query}`)
+  // #endif
+
+  // localStorage
+  uni.setStorageSync('course_view_mode', viewMode.value)
+  uni.setStorageSync('course_filter_state', JSON.stringify({
+    sort: sortKey.value,
+    priceType: priceType.value,
+    category: activeCategory.value,
+    filter: filterState.value
+  }))
+}
+
+// ===== 防抖加载课程 =====
+function debouncedLoadCourses() {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    loadCourses()
+  }, 300)
+}
+
+// ===== 事件处理 =====
+function handleViewModeChange(mode: ViewMode) {
+  viewMode.value = mode
+  uni.setStorageSync('course_view_mode', mode)
+  persistState()
+}
+
+function handleApplyFilter(state: CourseFilterState) {
+  filterState.value = state
+  persistState()
+  debouncedLoadCourses()
+}
+
+function handleResetFilter() {
+  filterState.value = { ...DEFAULT_FILTER_STATE }
+  persistState()
+  debouncedLoadCourses()
+}
+
+function handleRemoveFilter(payload: { type: string; value: string }) {
+  const { type, value } = payload
+  if (type === 'priceType') {
+    priceType.value = 'all'
+  } else if (type === 'category') {
+    activeCategory.value = 'all'
+  } else if (type === 'priceRange') {
+    filterState.value.priceRange = [0, 999]
+  } else if (type === 'difficulty' || type === 'language' || type === 'tags') {
+    const arr = filterState.value[type as 'difficulty' | 'language' | 'tags']
+    const idx = arr.indexOf(value)
+    if (idx >= 0) arr.splice(idx, 1)
+  }
+  persistState()
+  debouncedLoadCourses()
+}
+
+function handleClearAll() {
+  priceType.value = 'all'
+  activeCategory.value = 'all'
+  filterState.value = { ...DEFAULT_FILTER_STATE }
+  searchKeyword.value = ''
+  persistState()
+  debouncedLoadCourses()
+}
 
 function dismissWelcome() {
   showWelcome.value = false
@@ -250,54 +392,59 @@ async function loadCategories() {
   }
 }
 
-// 获取难度文本
-function getDifficultyText(difficulty: string): string {
-  const map: Record<string, string> = {
-    beginner: '入门',
-    intermediate: '进阶',
-    advanced: '高级',
-    expert: '专家'
-  }
-  return map[difficulty] || difficulty
-}
+// 获取难度文本（已移至 CourseCard 组件，此处保留供其他可能引用）
 
 // 加载课程列表
 async function loadCourses() {
   loading.value = true
   try {
-    const params: any = {}
-    
-    if (activeCategory.value !== 'all') {
-      params.category = activeCategory.value
-    }
-    
-    if (searchKeyword.value) {
-      params.q = searchKeyword.value
-    }
-    
-    const res: any = await getCourseList(params)
+    const res: any = await getCourseList({
+      category: activeCategory.value,
+      q: searchKeyword.value,
+      sort: sortKey.value,
+      priceType: priceType.value,
+      difficulty: filterState.value.difficulty,
+      language: filterState.value.language,
+      minPrice: filterState.value.priceRange[0],
+      maxPrice: filterState.value.priceRange[1],
+      tags: filterState.value.tags
+    })
     courseList.value = res?.data || []
+    totalCourses.value = res?.meta?.pagination?.total || courseList.value.length
   } catch (e) {
     console.error('加载课程失败', e)
-    courseList.value = [
-      { documentId: '1', title: '英语口语入门', description: '从零开始学英语，轻松开口说', status: 'published', createdAt: '2024-01-01', category: { name: '语言' } },
-      { documentId: '2', title: 'Python编程基础', description: '零基础学编程，开启编程之旅', status: 'published', createdAt: '2024-01-02', category: { name: '技术' } },
-      { documentId: '3', title: '绘画技巧分享', description: '掌握绘画技巧，画出美丽作品', status: 'published', createdAt: '2024-01-03', category: { name: '艺术' } },
-      { documentId: '4', title: '数据分析实战', description: '数据驱动决策，提升职场竞争力', status: 'published', createdAt: '2024-01-04', category: { name: '商业' } }
-    ]
+    courseList.value = []
+    totalCourses.value = 0
   }
   loading.value = false
+}
+
+// 加载标签列表
+async function loadTags() {
+  try {
+    const res: any = await getTags()
+    tagList.value = (res?.data || []).map((t: any) => ({
+      documentId: t.documentId,
+      name: t.name,
+      color: t.color
+    }))
+  } catch (e) {
+    console.error('加载标签失败', e)
+    tagList.value = []
+  }
 }
 
 // 处理分类切换
 function handleCategoryChange(categoryId: string) {
   activeCategory.value = categoryId
-  loadCourses()
+  persistState()
+  debouncedLoadCourses()
 }
 
 // 处理搜索
 function handleSearch() {
-  loadCourses()
+  persistState()
+  debouncedLoadCourses()
 }
 
 // 跳转到课程详情
@@ -345,6 +492,7 @@ function handleInviteCode() {
 
 onMounted(() => {
   handleInviteCode()
+  restoreState()
   refreshData()
   // 检查首登欢迎提示（auth-callback 写入的 isNewUser 标记）
   checkNewUserWelcome()
@@ -362,7 +510,8 @@ onShow(() => {
 function refreshData() {
   getUserInfo()
   loadCategories()
-  loadCourses()
+  loadTags()
+  debouncedLoadCourses()
   loadPointBalance()
   loadInviteCode()
   siteConfig.value = getStoredAuthConfig()
@@ -403,7 +552,7 @@ onShareTimeline(() => {
 
 .header {
   position: relative;
-  padding: 40rpx 30rpx;
+  padding: 40rpx 30rpx 2rpx;
   overflow: hidden;
 }
 
@@ -617,132 +766,16 @@ onShareTimeline(() => {
   padding: 0 30rpx;
 }
 
-.course-card {
-  display: flex;
-  background: #fff;
-  border-radius: 20rpx;
-  overflow: hidden;
-  margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+/* Grid 视图：两列网格 */
+.course-list--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
 }
 
-.course-cover {
-  width: 220rpx;
-  height: 180rpx;
-  background: #f5f5f5;
-  flex-shrink: 0;
-  position: relative;
-}
-
-.cover-image {
-  width: 100%;
-  height: 100%;
-}
-
-.cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 70rpx;
-  background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
-}
-
-.course-badge {
-  position: absolute;
-  top: 10rpx;
-  left: 10rpx;
-}
-
-.badge-paid, .badge-free {
-  display: inline-block;
-  padding: 4rpx 12rpx;
-  font-size: 20rpx;
-  border-radius: 8rpx;
-}
-
-.badge-paid {
-  background: #ff6b6b;
-  color: #fff;
-}
-
-.badge-free {
-  background: #51cf66;
-  color: #fff;
-}
-
-.points-badge {
-  position: absolute;
-  bottom: 10rpx;
-  right: 10rpx;
-  background: linear-gradient(135deg, #ffd700 0%, #ffb700 100%);
-  padding: 4rpx 12rpx;
-  border-radius: 8rpx;
-  
-  text {
-    font-size: 20rpx;
-    color: #333;
-    font-weight: bold;
-  }
-}
-
-.course-info {
-  flex: 1;
-  padding: 20rpx;
-  display: flex;
-  flex-direction: column;
-}
-
-.course-title {
-  font-size: 32rpx;
-  font-weight: bold;
-  color: #333;
-  line-height: 1.4;
-}
-
-.course-desc {
-  font-size: 24rpx;
-  color: #999;
-  margin-top: 8rpx;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.course-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 10rpx;
-  flex-wrap: wrap;
-  gap: 10rpx;
-}
-
-.meta-left {
-  display: flex;
-  gap: 15rpx;
-}
-
-.meta-item {
-  font-size: 22rpx;
-  color: #666;
-}
-
-.course-action {
-  margin-top: 15rpx;
-}
-
-.action-btn {
-  display: inline-block;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-  padding: 12rpx 30rpx;
-  border-radius: 25rpx;
-  font-size: 26rpx;
+/* List 视图：单列（原有样式） */
+.course-list--list {
+  display: block;
 }
 
 .empty-state {
