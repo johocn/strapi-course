@@ -1,6 +1,11 @@
 // API 接口定义 - 后端统一返回 { data, meta } 格式
 import { getToken, removeToken, removeUser, setPoints } from '../utils/storage'
 import { BASE_API } from '../utils/env'
+import {
+  buildCourseQuery,
+  stringifyQuery,
+  type CourseListParams
+} from '../utils/course-query'
 
 // 无需 token 的公开路由
 const PUBLIC_ROUTES = [
@@ -22,12 +27,16 @@ const PUBLIC_ROUTES = [
   '/zhao-point/v1/point/feature-flags',   // 特性开关（游客可看）
   '/zhao-course/v1/courses',         // 课程公开列表
   '/zhao-course/v1/course-categories', // 课程分类
+  '/zhao-course/v1/course-lessons',  // 课时公开列表
+  '/zhao-course/v1/lessons',         // 课时公开列表（别名）
   '/zhao-quiz/v1/public',            // 题库公开接口
   '/zhao-quiz/v1/questions',         // 题库（游客可看）
   '/zhao-auth/v1/auth/config',      // 认证配置
   '/zhao-auth/v1/login',            // 本地登录
   '/zhao-auth/v1/register',         // 注册
   '/zhao-auth/v1/reset-password',   // 重置密码
+  '/zhao-studio/v1/ads/',             // 广告展示（公开）
+  '/zhao-studio/v1/posters/',         // 海报模板（公开）
 ]
 
 function isPublicRoute(url: string): boolean {
@@ -40,6 +49,8 @@ function handleUnauthorized() {
   removeToken()
   removeUser()
   setPoints(0)
+  uni.removeStorageSync('refresh_token')
+  uni.removeStorageSync('token_expires_at')
   uni.removeStorageSync('inviteCode')
   uni.removeStorageSync('channelInviteCode')
   uni.removeStorageSync('wxAuthAppType')
@@ -49,8 +60,125 @@ function handleUnauthorized() {
   }, 1500)
 }
 
+// ===== Token 自动刷新机制 =====
+let isRefreshing = false
+let refreshPromise: Promise<string | null> | null = null
+
+/**
+ * 检查 token 是否即将过期（提前 60 秒刷新）
+ */
+function isTokenExpiring(): boolean {
+  const expiresAt = uni.getStorageSync('token_expires_at')
+  if (!expiresAt) return false // 没有过期时间，不刷新
+  return Date.now() >= Number(expiresAt)
+}
+
+/**
+ * 刷新 token（使用 refresh_token 换取新的 access_token）
+ * 返回新的 access_token，失败返回 null
+ */
+async function refreshToken(): Promise<string | null> {
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise // 复用正在进行的刷新请求
+  }
+
+  const refreshTokenStr = uni.getStorageSync('refresh_token')
+  if (!refreshTokenStr) return null
+
+  isRefreshing = true
+  refreshPromise = (async () => {
+    try {
+      const res: any = await new Promise((resolve, reject) => {
+        uni.request({
+          url: `${BASE_API}/zhao-sso/v1/auth/refresh`,
+          method: 'POST',
+          data: { refresh_token: refreshTokenStr },
+          header: { 'Content-Type': 'application/json' },
+          success: (res: any) => resolve(res),
+          fail: (err: any) => reject(err),
+        })
+      })
+
+      if (res.statusCode === 200 && res.data) {
+        const newToken = res.data.access_token || res.data.jwt || res.data.token
+        const newRefreshToken = res.data.refresh_token || refreshTokenStr
+        const expiresIn = res.data.expires_in || 900
+        if (newToken) {
+          uni.setStorageSync('token', newToken)
+          uni.setStorageSync('refresh_token', newRefreshToken)
+          uni.setStorageSync('token_expires_at', String(Date.now() + (expiresIn - 60) * 1000))
+          console.log('[request] Token 刷新成功')
+          return newToken
+        }
+      }
+      // 刷新失败：检测不可恢复错误并清除无效 token
+      const errorMsg =
+        typeof res.data?.error === 'string'
+          ? res.data.error
+          : res.data?.error?.message || ''
+
+      if (
+        errorMsg.includes('Token 记录不存在') ||
+        errorMsg.includes('已被撤销') ||
+        res.statusCode === 404
+      ) {
+        console.warn('[request] Refresh token 无效:', errorMsg)
+        uni.removeStorageSync('refresh_token')
+        uni.removeStorageSync('token_expires_at')
+      } else {
+        console.warn('[request] Token 刷新失败:', res.statusCode, errorMsg)
+      }
+      return null
+    } catch (e) {
+      console.warn('[request] Token 刷新异常:', e)
+      return null
+    } finally {
+      isRefreshing = false
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
+
+/**
+ * 底层请求辅助函数（不处理认证逻辑）
+ */
+function doRequest(
+  url: string,
+  options: any,
+  token: string | null
+): Promise<{ statusCode: number; data: any }> {
+  const headers: any = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return new Promise((resolve, reject) => {
+    uni.request({
+      url: `${BASE_API}${url}`,
+      method: options.method ?? 'GET',
+      data: options.data,
+      header: headers,
+      success: (res: any) => resolve({ statusCode: res.statusCode, data: res.data }),
+      fail: (err: any) => reject(err),
+    })
+  })
+}
+
+/**
+ * 判断是否为认证失败（401 或 403 PolicyError）
+ */
+function isAuthFailure(statusCode: number, data: any): boolean {
+  if (statusCode === 401) return true
+  if (statusCode === 403 && data?.error?.name === 'PolicyError') return true
+  return false
+}
+
 export async function request(url: string, options: any = {}) {
-  const token = getToken()
+  let token = getToken()
 
   // 非公开路由必须有 token
   if (!token && !isPublicRoute(url)) {
@@ -58,44 +186,62 @@ export async function request(url: string, options: any = {}) {
     throw new Error('未登录')
   }
 
-  const headers: any = {
-    'Content-Type': 'application/json',
-    ...options.headers
+  // Token 即将过期时自动刷新（非公开路由且非刷新接口本身）
+  if (token && !isPublicRoute(url) && isTokenExpiring() && !url.includes('/auth/refresh')) {
+    const newToken = await refreshToken()
+    if (newToken) {
+      token = newToken
+    }
+    // 刷新失败不阻断请求，让旧 token 继续尝试，后续 401/403 时再走 handleUnauthorized
   }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-  
+
   try {
-    const res = await new Promise((resolve, reject) => {
-      uni.request({
-        url: `${BASE_API}${url}`,
-        method: options.method ?? 'GET',
-        data: options.data,
-        header: headers,
-        success: (res: any) => {
-          // 401 未授权，跳转登录
-          if (res.statusCode === 401) {
-            if (!isHandlingUnauthorized) {
-              isHandlingUnauthorized = true
-              handleUnauthorized()
-              setTimeout(() => { isHandlingUnauthorized = false }, 2000)
-            }
-            reject(new Error('登录已过期'))
-            return
-          }
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(res.data)
-          } else {
-            reject(res.data)
-          }
-        },
-        fail: (err: any) => {
-          reject(err)
+    const res = await doRequest(url, options, token)
+
+    // 认证失败 → 尝试刷新 → 重试或跳登录
+    if (
+      isAuthFailure(res.statusCode, res.data) &&
+      !isPublicRoute(url) &&
+      !url.includes('/auth/refresh')
+    ) {
+      const newToken = await refreshToken()
+      if (newToken) {
+        // 用新 token 重试一次
+        const retryRes = await doRequest(url, options, newToken)
+        if (retryRes.statusCode >= 200 && retryRes.statusCode < 300) {
+          return retryRes.data
         }
-      })
-    })
-    return res
+        // 重试仍失败
+        if (isAuthFailure(retryRes.statusCode, retryRes.data)) {
+          if (!isHandlingUnauthorized) {
+            isHandlingUnauthorized = true
+            handleUnauthorized()
+            setTimeout(() => { isHandlingUnauthorized = false }, 2000)
+          }
+          throw new Error('登录已过期')
+        }
+        throw retryRes.data
+      } else {
+        // 刷新失败 → 跳登录
+        if (!isHandlingUnauthorized) {
+          isHandlingUnauthorized = true
+          handleUnauthorized()
+          setTimeout(() => { isHandlingUnauthorized = false }, 2000)
+        }
+        throw new Error('登录已过期')
+      }
+    }
+
+    // 401 在公开路由或刷新接口上（正常不应发生）
+    if (res.statusCode === 401) {
+      throw new Error('登录已过期')
+    }
+
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return res.data
+    }
+
+    throw res.data
   } catch (e) {
     console.error('API请求失败:', e)
     throw e
@@ -153,33 +299,24 @@ export async function getOpenPlatformAuthUrl(redirectUrl: string) {
 
 // ==================== 课程相关 API ====================
 
-export async function getCourseList(params?: { 
-  page?: number; 
-  pageSize?: number; 
-  category?: string;
-  tags?: string;
-  q?: string;
-  status?: string;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-}) {
-  const queryParams: Record<string, any> = {}
-  
-  if (params?.category && params.category !== 'all') {
-    queryParams['filters[category][documentId][$eq]'] = params.category
-  }
-  if (params?.q) {
-    queryParams['filters[title][$containsi]'] = params.q
-  }
-  if (params?.page) queryParams['pagination[page]'] = params.page
-  if (params?.pageSize) queryParams['pagination[pageSize]'] = params.pageSize
-  
-  const query = new URLSearchParams(queryParams).toString()
+export async function getCourseList(params?: CourseListParams) {
+  const queryParams = params ? buildCourseQuery(params) : {}
+  const query = stringifyQuery(queryParams)
   return request(`/zhao-course/v1/courses${query ? '?' + query : ''}`)
 }
 
 export async function getCourseCategories() {
   return request('/zhao-course/v1/course-categories')
+}
+
+export interface Tag {
+  documentId: string
+  name: string
+  color?: string
+}
+
+export async function getTags() {
+  return request('/zhao-tag/v1/tags?pagination[pageSize]=100')
 }
 
 export async function getCourseDetail(documentId: string) {
