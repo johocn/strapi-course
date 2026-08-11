@@ -23,14 +23,17 @@ export const DEFAULT_FILTER_STATE: CourseFilterState = {
   tags: []
 }
 
-/** 排序 key → Strapi v5 sort 参数映射 */
+/** 排序 key → Strapi v5 sort 参数映射
+ * 注意：多字段排序逗号后不能有空格，否则 URLSearchParams 编码为 +
+ * Strapi 解析时会把 + 解码为空格，导致字段名变成 " discountPrice" 报 not found 错误
+ */
 export const SORT_MAP: Record<SortKey, string> = {
   default: 'isFeatured:desc,sort:asc,publishDate:asc,createdAt:asc',
   newest: 'publishDate:desc,createdAt:desc',
   hot: 'studentCount:desc',
   // 价格升序：免费课(courseType=free)在前，付费课按 discountPrice，积分课按 pointsPrice
-  price_asc: 'courseType:asc, discountPrice:asc, pointsPrice:asc',
-  price_desc: 'courseType:desc, discountPrice:desc, pointsPrice:desc',
+  price_asc: 'courseType:asc,discountPrice:asc,pointsPrice:asc',
+  price_desc: 'courseType:desc,discountPrice:desc,pointsPrice:desc',
   rating: 'rating:desc,ratingCount:desc'
 }
 
