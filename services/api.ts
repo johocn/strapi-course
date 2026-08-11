@@ -617,6 +617,13 @@ export interface Course {
   status?: string
   isPaid?: boolean
   isFree?: boolean
+  courseType?: 'free' | 'points' | 'paid'
+  pointsPrice?: number
+  enrollMode?: 'none' | 'required' | 'period'
+  originalPrice?: number
+  discountPrice?: number
+  isFeatured?: boolean
+  publishDate?: string
   enablePoints?: boolean
   points?: number
   difficulty?: string
@@ -626,6 +633,13 @@ export interface Course {
   studentCount?: number
   viewCount?: number
   rating?: number
+  // 顺序锁定字段
+  sequenceNumber?: number
+  sequenceTag?: { documentId: string; name: string } | null
+  enforceSequence?: boolean
+  // 答题控制字段
+  allowRetakeQuiz?: boolean
+  quizRetryCount?: 'no_retry' | 'retry_1' | 'retry_2' | 'retry_3' | 'retry_4'
 }
 
 export interface Lesson {
@@ -634,6 +648,13 @@ export interface Lesson {
   duration: number
   completed?: boolean
   progress?: number
+  // 顺序锁定字段
+  sequenceNumber?: number
+  sequenceTag?: { documentId: string; name: string } | null
+  enforceSequence?: boolean
+  isRequired?: boolean
+  isCompleted?: boolean
+  isPointsClaimed?: boolean
 }
 
 export interface QuizQuestion {

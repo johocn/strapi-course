@@ -68,6 +68,7 @@ const activeChips = computed<ActiveChip[]>(() => {
   if (props.priceType !== 'all') {
     const labelMap: Record<string, string> = {
       free: '免费',
+      points: '积分',
       paid: '付费',
       featured: '精选'
     }

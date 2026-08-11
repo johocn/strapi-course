@@ -55,12 +55,17 @@ describe('course-query', () => {
 
     it('maps priceType free', () => {
       const query = buildCourseQuery({ priceType: 'free' })
-      expect(query['filters[$and][0][isFree][$eq]']).toBe('true')
+      expect(query['filters[$and][0][courseType][$eq]']).toBe('free')
+    })
+
+    it('maps priceType points', () => {
+      const query = buildCourseQuery({ priceType: 'points' })
+      expect(query['filters[$and][0][courseType][$eq]']).toBe('points')
     })
 
     it('maps priceType paid', () => {
       const query = buildCourseQuery({ priceType: 'paid' })
-      expect(query['filters[$and][0][isPaid][$eq]']).toBe('true')
+      expect(query['filters[$and][0][courseType][$eq]']).toBe('paid')
     })
 
     it('maps priceType featured', () => {
@@ -95,7 +100,7 @@ describe('course-query', () => {
         difficulty: ['beginner'],
         language: ['zh-CN']
       })
-      expect(query['filters[$and][0][isFree][$eq]']).toBe('true')
+      expect(query['filters[$and][0][courseType][$eq]']).toBe('free')
       expect(query['filters[$and][1][difficulty][$in]']).toBe('beginner')
       expect(query['filters[$and][2][language][$in]']).toBe('zh-CN')
     })

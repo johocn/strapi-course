@@ -14,10 +14,11 @@
       />
       <view v-else class="cover-placeholder">📚</view>
 
-      <!-- 付费/免费标签 -->
+      <!-- 付费/免费/积分标签 -->
       <view class="course-badge">
-        <text v-if="course.isPaid && !course.isFree" class="badge-paid">付费</text>
-        <text v-else-if="course.isFree" class="badge-free">免费</text>
+        <text v-if="displayType === 'free'" class="badge-free">免费</text>
+        <text v-else-if="displayType === 'points'" class="badge-points">{{ course.pointsPrice || 0 }}积分</text>
+        <text v-else-if="displayType === 'paid'" class="badge-paid">付费</text>
       </view>
 
       <!-- 积分标签 -->
@@ -43,7 +44,7 @@
       <!-- 操作按钮（仅 list 模式显示） -->
       <view v-if="mode === 'list'" class="course-action">
         <text class="action-btn">
-          {{ course.isPaid && !course.isFree ? '立即购买' : '开始学习' }}
+          {{ displayType === 'paid' ? '立即购买' : displayType === 'points' ? '积分兑换' : '开始学习' }}
         </text>
       </view>
     </view>
@@ -51,10 +52,11 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { getImageUrl } from '../../utils/env'
 import type { Course } from '../../services/api'
 
-defineProps<{
+const props = defineProps<{
   course: Course
   mode: 'grid' | 'list'
 }>()
@@ -62,6 +64,13 @@ defineProps<{
 defineEmits<{
   (e: 'click', documentId: string): void
 }>()
+
+/** 课程展示类型（软迁移：courseType 为空时按 isFree/isPaid 反推） */
+const displayType = computed<'free' | 'points' | 'paid'>(() => {
+  if (props.course.courseType) return props.course.courseType
+  if (props.course.isPaid) return 'paid'
+  return 'free'
+})
 
 function getDifficultyText(difficulty: string): string {
   const map: Record<string, string> = {
@@ -151,6 +160,12 @@ function formatCount(n: number): string {
 .badge-free {
   background: #51cf66;
   color: #fff;
+}
+
+.badge-points {
+  background: linear-gradient(135deg, #ffd700 0%, #ffb700 100%);
+  color: #333;
+  font-weight: bold;
 }
 
 .points-badge {

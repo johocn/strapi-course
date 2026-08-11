@@ -5,7 +5,7 @@
 export type SortKey = 'default' | 'newest' | 'hot' | 'price_asc' | 'price_desc' | 'rating'
 
 /** 价格类型 */
-export type PriceType = 'all' | 'free' | 'paid' | 'featured'
+export type PriceType = 'all' | 'free' | 'points' | 'paid' | 'featured'
 
 /** 完整过滤状态 */
 export interface CourseFilterState {
@@ -28,8 +28,9 @@ export const SORT_MAP: Record<SortKey, string> = {
   default: 'isFeatured:desc,sort:asc,publishDate:asc,createdAt:asc',
   newest: 'publishDate:desc,createdAt:desc',
   hot: 'studentCount:desc',
-  price_asc: 'discountPrice:asc,originalPrice:asc',
-  price_desc: 'discountPrice:desc,originalPrice:desc',
+  // 价格升序：免费课(courseType=free)在前，付费课按 discountPrice，积分课按 pointsPrice
+  price_asc: 'courseType:asc, discountPrice:asc, pointsPrice:asc',
+  price_desc: 'courseType:desc, discountPrice:desc, pointsPrice:desc',
   rating: 'rating:desc,ratingCount:desc'
 }
 
@@ -57,6 +58,7 @@ export const LANGUAGE_OPTIONS = [
 export const PRICE_TYPE_OPTIONS = [
   { value: 'all', label: '全部' },
   { value: 'free', label: '免费' },
+  { value: 'points', label: '积分' },
   { value: 'paid', label: '付费' },
   { value: 'featured', label: '⭐精选' }
 ]
@@ -115,16 +117,14 @@ export function buildCourseQuery(params: CourseListParams): Record<string, strin
     query['sort'] = SORT_MAP[params.sort]
   }
 
-  // 价格类型
+  // 价格类型（free/points/paid 映射到 courseType，featured 映射到 isFeatured）
   if (params.priceType && params.priceType !== 'all') {
-    const fieldMap: Record<string, string> = {
-      free: 'isFree',
-      paid: 'isPaid',
-      featured: 'isFeatured'
-    }
-    const field = fieldMap[params.priceType]
-    if (field) {
-      query[`filters[$and][${andIndex}][${field}][$eq]`] = 'true'
+    if (params.priceType === 'featured') {
+      query[`filters[$and][${andIndex}][isFeatured][$eq]`] = 'true'
+      andIndex++
+    } else {
+      // free/points/paid 都映射到 courseType
+      query[`filters[$and][${andIndex}][courseType][$eq]`] = params.priceType
       andIndex++
     }
   }
@@ -234,7 +234,7 @@ export function parseUrlQuery(queryStr: string): {
   if (category) result.category = category
 
   const priceType = params.get('priceType')
-  if (priceType && ['all', 'free', 'paid', 'featured'].includes(priceType)) {
+  if (priceType && ['all', 'free', 'points', 'paid', 'featured'].includes(priceType)) {
     result.priceType = priceType as PriceType
   }
 
