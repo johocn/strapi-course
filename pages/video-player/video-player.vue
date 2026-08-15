@@ -206,7 +206,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, claimLessonPoints, request } from '../../services/api'
+import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, request } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
 import { BASE_URL } from '../../utils/env'
@@ -214,7 +214,7 @@ import { checkItemLock, RETRY_MAP } from '../../utils/sequence-lock'
 import { normalizeList, buildProgressMap, enrichLessons, findFirstIncompleteIndex, extractEarnedLessonIds, countTodayQuizRecords } from '../../utils/player-data'
 import { decidePlaybackAction, formatTime, formatDuration, computeProgress } from '../../utils/player-playback'
 import { isCorrectAnswer as judgeCorrectAnswer, toggleSelection, computeEarnedPoints, canRetryAnswer, isQuizPracticeMode, canTakeFormalQuiz, sumEarnedPoints } from '../../utils/quiz-logic'
-import { shouldShowChannelPicker, shouldFetchAvailableChannels, buildChannelOptions, dedupeChannels, buildChannelLabels } from '../../utils/points-store'
+import { shouldFetchAvailableChannels, buildChannelOptions, dedupeChannels } from '../../utils/points-store'
 import type { Course, Lesson, QuizQuestion } from '../../services/api'
 import ChannelPicker from '../../components/channel-picker.vue'
 import SequenceLockDialog from '../../components/sequence-lock-dialog/sequence-lock-dialog.vue'
@@ -283,6 +283,10 @@ const isQuizButtonLocked = computed(() => {
 // 答题按钮文案
 const quizButtonText = computed(() => {
   if (isQuizButtonLocked.value) return '已完成答题'
+  // 已领积分但允许复答 → 进入练习模式（不重复获积分）
+  const lid = currentLesson.value?.documentId
+  const isPractice = lid ? isQuizPracticeMode(earnedLessonIds.value, lid) : false
+  if (isPractice) return '继续答题（练习模式，不重复获积分）'
   if (todayQuizCount.value >= maxDailyQuiz.value) return '今日答题已达上限'
   return '开始答题'
 })
@@ -661,49 +665,14 @@ async function markLessonComplete() {
     if (saved && (saved as any).id && !lesson.progressId) {
       lesson.progressId = (saved as any).id
     }
-    // 课时有积分（lesson_points 模式）→ 自动尝试领分；quiz_points 模式由答题链路领分
-    if ((lesson as any).enablePoints && (lesson as any).pointsType === 'lesson_points' && lesson.progressId) {
-      await tryClaimLessonPoints(lesson)
-    }
+    // 弹出去答题/继续学习提示；积分仅在答题后通过答题链路发放，不在此处提前领分
+    resumeMode.value = 'completed'
+    showResumeDialog.value = true
+    resumeShownSet.value.add(lesson.documentId)
   }
 }
 
-// 课时领分（受 channel_cross_points flag 控制渠道选择器）
-async function tryClaimLessonPoints(lesson: any) {
-  if (earnedLessonIds.value.has(lesson.documentId)) return
-
-  const ch = (courseDetail.value as any) || {}
-  const channelIds: any[] = Array.isArray(ch.channelIds) ? ch.channelIds : []
-  const pointChannelId = ch.pointChannel?.id ?? ch.pointChannel ?? null
-
-  // specific 模式 + flag=true + 多个候选渠道 → 弹选择器
-  const needPicker = shouldShowChannelPicker(ch.channelScope, channelIds, featureFlagChannelCrossPoints.value)
-
-  const doClaim = async (selectedChannelId?: number | string) => {
-    try {
-      const res = await claimLessonPoints(lesson.progressId, { selectedChannelId })
-      const earned = (res as any)?.pointsEarned || 0
-      pointsBalance.value += earned
-      earnedLessonIds.value = new Set([...earnedLessonIds.value, lesson.documentId])
-      uni.showToast({ title: `获得${earned}积分！`, icon: 'success' })
-    } catch (e: any) {
-      const errMsg = (e as any)?.error || '积分领取失败'
-      uni.showToast({ title: errMsg, icon: 'none' })
-    }
-  }
-
-  if (needPicker) {
-    const labels = buildChannelLabels(channelIds, pointChannelId)
-    uni.showActionSheet({
-      itemList: labels,
-      success: (res) => doClaim(channelIds[res.tapIndex]),
-      fail: () => doClaim(pointChannelId || undefined)
-    })
-    return
-  }
-
-  doClaim()
-}
+// 课时领分已移除：积分统一走答题链路（claimQuizPoints），不再在课时完成时提前发放
 
 function goToNext() {
   if (currentLessonIndex.value < lessons.value.length - 1) {
@@ -916,7 +885,13 @@ async function doClaimFlow(totalEarned: number) {
   } else if (availableChannels.length === 1) {
     await claimWithChannel(availableChannels[0].documentId, totalEarned)
   } else {
-    uni.showToast({ title: '无可选渠道', icon: 'none' })
+    // 无候选渠道：回退到课程默认渠道（pointChannel），避免"必须选择积分充值渠道"报错
+    const pointChannelId = channelConfig.value?.pointChannelId
+    if (pointChannelId) {
+      await claimWithChannel(pointChannelId, totalEarned)
+    } else {
+      uni.showToast({ title: '无可选渠道', icon: 'none' })
+    }
   }
 }
 
