@@ -111,23 +111,14 @@ async function refreshToken(): Promise<string | null> {
           return newToken
         }
       }
-      // 刷新失败：检测不可恢复错误并清除无效 token
+      // 刷新失败：后端已返回响应但非 200（401/404/500 等）→ refresh token 不可用，清除避免反复触发
       const errorMsg =
         typeof res.data?.error === 'string'
           ? res.data.error
           : res.data?.error?.message || ''
-
-      if (
-        errorMsg.includes('Token 记录不存在') ||
-        errorMsg.includes('已被撤销') ||
-        res.statusCode === 404
-      ) {
-        console.warn('[request] Refresh token 无效:', errorMsg)
-        uni.removeStorageSync('refresh_token')
-        uni.removeStorageSync('token_expires_at')
-      } else {
-        console.warn('[request] Token 刷新失败:', res.statusCode, errorMsg)
-      }
+      console.warn('[request] Token 刷新失败:', res.statusCode, errorMsg)
+      uni.removeStorageSync('refresh_token')
+      uni.removeStorageSync('token_expires_at')
       return null
     } catch (e) {
       console.warn('[request] Token 刷新异常:', e)
@@ -362,6 +353,66 @@ export async function claimLessonPoints(progressId: string | number, data: { sel
     method: 'POST',
     data
   })
+  return res?.data ?? res
+}
+
+// ==================== 课程报名 API ====================
+
+/** 报名类型：free=免费 points=积分兑换 paid=付费凭证 code=开通码 */
+export type EnrollType = 'free' | 'points' | 'paid' | 'code'
+
+/** 报名状态：enrolled=已开通 pending_review=待审核 rejected=已驳回 revoked=已撤销 */
+export type EnrollmentStatus = 'enrolled' | 'pending_review' | 'rejected' | 'revoked'
+
+export interface Enrollment {
+  documentId: string
+  status: EnrollmentStatus
+  enrollType: EnrollType
+  pointsSpent?: number
+  voucherUrl?: string
+  voucherNote?: string
+  accessCode?: string
+  reviewNote?: string
+  enrolledAt?: string
+  createdAt?: string
+  course?: any
+}
+
+/**
+ * 查询当前用户对某课程的报名状态
+ * 返回 null 表示尚未报名
+ */
+export async function getMyEnrollment(courseId: string): Promise<Enrollment | null> {
+  const res = await request(`/zhao-course/v1/enrollments/me?course=${courseId}`)
+  return res?.data ?? null
+}
+
+/**
+ * 创建报名
+ * - free/points/code → 立即开通（status=enrolled）
+ * - paid → 待审核（status=pending_review），需传 voucherUrl
+ */
+export async function createEnrollment(data: {
+  course: string
+  enrollType: EnrollType
+  voucherUrl?: string
+  voucherNote?: string
+  accessCode?: string
+}): Promise<Enrollment> {
+  const res = await request('/zhao-course/v1/enrollments', {
+    method: 'POST',
+    data,
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 查询我的报名列表
+ * params 可选：{ status?: EnrollmentStatus }
+ */
+export async function getMyEnrollments(params: { status?: EnrollmentStatus } = {}): Promise<Enrollment[]> {
+  const query = params.status ? `?status=${params.status}` : ''
+  const res = await request(`/zhao-course/v1/enrollments${query}`)
   return res?.data ?? res
 }
 
