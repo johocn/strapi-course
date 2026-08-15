@@ -12,15 +12,16 @@
 
     <view class="video-player">
       <video
-        v-if="currentLesson?.video_url"
+        v-if="mediaUrl"
         :id="videoId"
-        :src="currentLesson.video_url"
+        :src="mediaUrl"
+        :poster="posterUrl"
         :initial-time="initialTime"
         :controls="true"
-        :show-fullscreen-btn="true"
+        :show-fullscreen-btn="!!currentLesson?.video_url"
         :show-play-btn="true"
         :show-center-play-btn="true"
-        :enable-progress-gesture="!lessonCompleted"
+        :enable-progress-gesture="true"
         :autoplay="false"
         class="video-element"
         @play="onVideoPlay"
@@ -31,7 +32,7 @@
       />
       <view v-else class="video-placeholder">
         <text class="play-icon">▶</text>
-        <text class="placeholder-text">暂无视频</text>
+        <text class="placeholder-text">暂无音视频内容</text>
       </view>
     </view>
 
@@ -59,6 +60,7 @@
         </view>
         <view class="lesson-status">
           <text v-if="lesson.completed" class="completed-icon">✓</text>
+          <text v-else-if="getLessonLockStatus(lesson).locked" :class="['lock-icon', { 'soft-lock': !getLessonLockStatus(lesson).enforceMode }]">{{ getLessonLockStatus(lesson).enforceMode ? '🔒' : '💡' }}</text>
           <text v-else-if="currentLessonIndex === index" class="playing-icon">▶</text>
         </view>
       </view>
@@ -128,8 +130,29 @@
       <view class="action-btn secondary" @click="goBack">
         <text>返回课程</text>
       </view>
-      <view :class="['action-btn', 'primary', { disabled: todayQuizCount >= maxDailyQuiz }]" @click="startQuiz">
-        <text>{{ todayQuizCount >= maxDailyQuiz ? '今日答题已达上限' : '开始答题' }}</text>
+      <view :class="['action-btn', 'primary', { disabled: isQuizButtonLocked || todayQuizCount >= maxDailyQuiz }]" @click="startQuiz">
+        <text>{{ quizButtonText }}</text>
+      </view>
+    </view>
+
+    <!-- 答题积分领取确认弹窗（一次性积分） -->
+    <view v-if="showClaimConfirmDialog" class="claim-confirm-overlay">
+      <view class="claim-confirm-modal">
+        <view class="claim-confirm-icon">🎁</view>
+        <view class="claim-confirm-title">确认领取积分</view>
+        <view class="claim-confirm-desc">
+          本次答题可获得
+          <text class="claim-confirm-points">+{{ pendingClaimTotal }} 积分</text>
+          （一次性领取，不可重复获得），是否确认领取？
+        </view>
+        <view class="claim-confirm-actions">
+          <view class="claim-confirm-btn cancel" @click="onClaimCancel">
+            <text>暂不领取</text>
+          </view>
+          <view class="claim-confirm-btn primary" @click="onClaimConfirm">
+            <text>确认领取</text>
+          </view>
+        </view>
       </view>
     </view>
 
@@ -141,6 +164,42 @@
       @confirm="onChannelConfirm"
       @cancel="onChannelCancel"
     />
+
+    <!-- 顺序锁定弹窗 -->
+    <SequenceLockDialog
+      v-model:visible="lockDialogVisible"
+      :enforce-mode="lockDialogMode"
+      :reason="lockDialogReason"
+      @goto="handleLockGoto"
+      @skip="handleLockSkip"
+    />
+
+    <!-- 续播/完成弹窗 -->
+    <view v-if="showResumeDialog" class="resume-overlay" @click.self="onResumeRestart">
+      <view class="resume-modal">
+        <view class="resume-icon">
+          <text>{{ resumeMode === 'completed' ? '🎉' : '▶' }}</text>
+        </view>
+        <view class="resume-header">
+          <text class="resume-title">{{ resumeMode === 'completed' ? '课时已完成' : '继续学习' }}</text>
+        </view>
+        <view class="resume-body">
+          <text v-if="resumeMode === 'completed'" class="resume-desc">本课时已学习完成，是否去答题或重新学习？</text>
+          <text v-else class="resume-desc">上次学到 <text class="resume-time">{{ resumePositionText }}</text>，从哪里继续？</text>
+        </view>
+        <view class="resume-actions">
+          <view v-if="resumeMode === 'completed'" class="resume-btn primary" @click="onResumeGoQuiz">
+            <text>去答题</text>
+          </view>
+          <view v-else class="resume-btn primary" @click="onResumeContinue">
+            <text>▶ 从 {{ resumePositionText }} 继续</text>
+          </view>
+          <view class="resume-btn secondary" @click="onResumeRestart">
+            <text>↺ 从头开始播放</text>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -150,8 +209,15 @@ import { onShow } from '@dcloudio/uni-app'
 import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, claimLessonPoints, request } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
+import { BASE_URL } from '../../utils/env'
+import { checkItemLock, RETRY_MAP } from '../../utils/sequence-lock'
+import { normalizeList, buildProgressMap, enrichLessons, findFirstIncompleteIndex, extractEarnedLessonIds, countTodayQuizRecords } from '../../utils/player-data'
+import { decidePlaybackAction, formatTime, formatDuration, computeProgress } from '../../utils/player-playback'
+import { isCorrectAnswer as judgeCorrectAnswer, toggleSelection, computeEarnedPoints, canRetryAnswer, isQuizPracticeMode, canTakeFormalQuiz, sumEarnedPoints } from '../../utils/quiz-logic'
+import { shouldShowChannelPicker, shouldFetchAvailableChannels, buildChannelOptions, dedupeChannels, buildChannelLabels } from '../../utils/points-store'
 import type { Course, Lesson, QuizQuestion } from '../../services/api'
 import ChannelPicker from '../../components/channel-picker.vue'
+import SequenceLockDialog from '../../components/sequence-lock-dialog/sequence-lock-dialog.vue'
 
 const courseDetail = ref<Course | null>(null)
 const lessons = ref<(Lesson & { completed?: boolean; progressPercent?: number; progressId?: number; playPosition?: number; progressDuration?: number })[]>([])
@@ -185,10 +251,48 @@ const earnedLessonIds = ref<Set<string>>(new Set())
 const featureFlagChannelCrossPoints = ref(false)
 const channelConfig = ref<any>(null)
 
+// 顺序锁定状态
+const lockDialogVisible = ref(false)
+const lockDialogMode = ref(false)
+const lockDialogReason = ref('')
+const lockGotoLessonIndex = ref(-1)
+const lockOriginalLessonIndex = ref(-1)
+
+// 续播/完成弹窗状态
+const showResumeDialog = ref(false)
+const resumeMode = ref<'resume' | 'completed'>('resume')
+const resumePositionText = ref('')
+// 会话级记忆：同一课时只弹一次提示，之后再次进入直接断点续播/从头播放
+const resumeShownSet = ref<Set<string>>(new Set())
+
+// 课程级答题控制字段（从 courseDetail 读取）
+const courseAllowRetakeQuiz = computed(() => courseDetail.value?.allowRetakeQuiz === true)
+const courseQuizRetryCount = computed(() => {
+  const val = courseDetail.value?.quizRetryCount
+  return val ? (RETRY_MAP[val] ?? 0) : 0
+})
+
+// 答题按钮锁定状态（领分后锁定，allowRetakeQuiz=true 时跳过锁定）
+const isQuizButtonLocked = computed(() => {
+  if (courseAllowRetakeQuiz.value) return false
+  const lid = currentLesson.value?.documentId
+  if (!lid) return false
+  return earnedLessonIds.value.has(lid)
+})
+
+// 答题按钮文案
+const quizButtonText = computed(() => {
+  if (isQuizButtonLocked.value) return '已完成答题'
+  if (todayQuizCount.value >= maxDailyQuiz.value) return '今日答题已达上限'
+  return '开始答题'
+})
+
 // 渠道选择弹窗
 const showChannelPicker = ref(false)
 const channelPickerList = ref<any[]>([])
 const pendingClaimTotal = ref(0)
+// 答题积分领取确认弹窗（一次性积分，领取前需用户确认）
+const showClaimConfirmDialog = ref(false)
 
 // 视频播放器相关
 const videoId = 'lessonVideo'
@@ -210,6 +314,17 @@ const currentLesson = computed(() => lessons.value[currentLessonIndex.value])
 const currentQuestion = computed(() => questions.value[currentQuestionIndex.value])
 const lessonCompleted = computed(() => currentLesson.value?.completed || false)
 
+// 媒体源：优先 video_url，其次 audio_url（兼容音频课程）
+const mediaUrl = computed(() => currentLesson.value?.video_url || currentLesson.value?.audio_url || '')
+
+// 封面图：音频课时展示缩略图，提升体验
+const posterUrl = computed(() => {
+  const t = (currentLesson.value as any)?.thumbnail
+  const url = (t as any)?.url
+  if (!url) return ''
+  return url.startsWith('http') ? url : `${BASE_URL}${url}`
+})
+
 async function loadData() {
   const pages = getCurrentPages()
   const currentPage = pages[pages.length - 1]
@@ -227,30 +342,13 @@ async function loadData() {
     courseDocumentId.value = (courseRes as any)?.documentId || courseId
     
     // 处理课时列表数据（可能是数组或 { data: [...] } 结构）
-    let lessonData: any[] = []
-    if (Array.isArray(lessonsRes)) {
-      lessonData = lessonsRes
-    } else if (lessonsRes?.data) {
-      lessonData = Array.isArray(lessonsRes.data) ? lessonsRes.data : [lessonsRes.data]
-    }
+    const lessonData = normalizeList<any>(lessonsRes)
     
     // 处理进度数据（可能是数组、单个对象或 { data: [...] } 结构）
-    let progressData: any[] = []
-    if (Array.isArray(progressRes)) {
-      progressData = progressRes
-    } else if (progressRes?.data) {
-      progressData = Array.isArray(progressRes.data) ? progressRes.data : [progressRes.data]
-    } else if (progressRes && typeof progressRes === 'object' && !Array.isArray(progressRes)) {
-      // 单个进度对象
-      progressData = [progressRes]
-    }
+    const progressData = normalizeList<any>(progressRes)
 
     // 用 documentId 匹配，避免 number/string 类型不一致导致 Map.get 失败
-    const progressMap = new Map<string, any>()
-    for (const p of progressData) {
-      const lessonDocId = p.lesson?.documentId
-      if (lessonDocId) progressMap.set(lessonDocId, p)
-    }
+    const progressMap = buildProgressMap(progressData)
     
     // 调试日志
     console.log('[DEBUG] 课时列表:', lessonData.length, '条')
@@ -260,53 +358,27 @@ async function loadData() {
       console.log('[DEBUG] 第一条进度数据:', JSON.stringify(progressData[0]))
     }
 
-    lessons.value = lessonData.map((l: any) => {
-      const p = progressMap.get(l.documentId)
-      // 调试日志：显示每个课时的匹配结果
-      if (p) {
-        console.log(`[DEBUG] 课时 ${l.documentId} 匹配到进度: playPosition=${p.playPosition}, isCompleted=${p.isCompleted}`)
-      }
-      return {
-        ...l,
-        completed: p?.isCompleted || false,
-        progressPercent: p?.progress || 0,
-        progressId: p?.id || undefined,
-        playPosition: p?.playPosition || 0,
-        progressDuration: p?.duration || 0,
-      }
-    })
+    lessons.value = enrichLessons(lessonData, progressMap)
     
     // 默认跳转到第一个未完成的课时（如果有未完成的）
-    const firstIncompleteIndex = lessons.value.findIndex((l: any) => !l.completed)
+    const firstIncompleteIndex = findFirstIncompleteIndex(lessons.value)
     // 如果有未完成课时，跳转到第一个未完成；否则使用 URL 指定的课时
     currentLessonIndex.value = firstIncompleteIndex >= 0 ? firstIncompleteIndex : lessonIndex
 
-    // 设置当前课时时长和初始播放位置
-    const initLesson = lessons.value[currentLessonIndex.value]
-    if (initLesson) {
-      duration.value = initLesson.duration || 0
-      // 优先使用保存的播放位置（即使已完成也要续播）
-      if (initLesson.playPosition > 0) {
-        initialTime.value = initLesson.playPosition
-        currentTime.value = initLesson.playPosition
-        progress.value = initLesson.duration > 0
-          ? Math.min(100, (initLesson.playPosition / initLesson.duration) * 100)
-          : 0
-        console.log(`[DEBUG] 初始播放位置: ${initLesson.playPosition}秒 (${progress.value.toFixed(1)}%)`)
-      } else {
-        console.log(`[DEBUG] 无保存位置，从头开始播放`)
-      }
-    }
+    // 处理当前课时播放：有保存进度弹续播提示，已完成弹去答题/重头提示
+    offerLessonPlayback(currentLessonIndex.value)
 
     const balanceRes = await getPointBalance()
     pointsBalance.value = (balanceRes as any)?.balance || 0
 
-    // 加载答题重试配置
+    // 加载答题重试配置：课程级 quizRetryCount 替代全局 flag
     try {
       const flagsRes = await getPointFeatureFlags()
       if (flagsRes) {
-        quizRetryEnabled.value = flagsRes.quizRetryEnabled !== false
-        quizMaxRetryCount.value = flagsRes.quizMaxRetryCount ?? 1
+        // quizRetryEnabled/quizMaxRetryCount 改为从课程级字段读取
+        const retryCount = courseQuizRetryCount.value
+        quizRetryEnabled.value = retryCount > 0
+        quizMaxRetryCount.value = retryCount
         maxDailyQuiz.value = flagsRes.maxDailyQuiz ?? 3
         featureFlagChannelCrossPoints.value = !!(flagsRes as any).channel_cross_points
       }
@@ -316,13 +388,9 @@ async function loadData() {
     try {
       const recordRes = await getPointRecordList({ action: 'quiz_pass', pageSize: 200 })
       const records = (recordRes as any)?.data?.records || []
-      const lids = new Set<string>()
+      const lids = extractEarnedLessonIds(records)
       const today = new Date().toISOString().slice(0, 10)
-      let todayCount = 0
-      for (const r of records) {
-        if (r.source) lids.add(String(r.source))
-        if (r.createdAt && r.createdAt.slice(0, 10) === today) todayCount++
-      }
+      const todayCount = countTodayQuizRecords(records, today)
       earnedLessonIds.value = lids
       todayQuizCount.value = todayCount
     } catch {}
@@ -350,38 +418,143 @@ function getVideoContext() {
   return videoContext
 }
 
+/** 检查课时是否被顺序锁定 */
+function getLessonLockStatus(lesson: any) {
+  if (!lesson?.sequenceTag || (lesson.sequenceNumber ?? 0) === 0) {
+    return { locked: false, enforceMode: false, reason: '', firstIncomplete: null }
+  }
+  const allItems = lessons.value
+    .filter(l => l.sequenceTag && (l.sequenceNumber ?? 0) > 0)
+    .map(l => ({
+      documentId: l.documentId,
+      title: l.title,
+      sequenceNumber: l.sequenceNumber ?? 0,
+      sequenceTag: l.sequenceTag,
+      enforceSequence: l.enforceSequence ?? courseDetail.value?.enforceSequence ?? false,
+      isCompleted: l.completed ?? false
+    }))
+  return checkItemLock(
+    {
+      documentId: lesson.documentId,
+      title: lesson.title,
+      sequenceNumber: lesson.sequenceNumber ?? 0,
+      sequenceTag: lesson.sequenceTag,
+      enforceSequence: lesson.enforceSequence ?? courseDetail.value?.enforceSequence ?? false,
+      isCompleted: lesson.completed ?? false
+    },
+    allItems
+  )
+}
+
 function selectLesson(index: number) {
+  const lesson = lessons.value[index]
+  if (!lesson) return
+
+  // 顺序锁定检查
+  const lockResult = getLessonLockStatus(lesson)
+  if (lockResult.locked) {
+    lockDialogMode.value = lockResult.enforceMode
+    lockDialogReason.value = lockResult.reason
+    const firstIncompleteId = lockResult.firstIncomplete?.documentId
+    lockGotoLessonIndex.value = lessons.value.findIndex(l => l.documentId === firstIncompleteId)
+    lockOriginalLessonIndex.value = index
+    lockDialogVisible.value = true
+    return
+  }
+
   // 切换课前保存当前进度
   saveLearningProgress()
-  
+
   currentLessonIndex.value = index
   hasMarkedComplete = false
-  const lesson = lessons.value[index]
   duration.value = lesson?.duration || 0
-
-  // 优先使用保存的播放位置（即使已完成也要续播）
-  if (lesson?.playPosition && lesson.playPosition > 0) {
-    initialTime.value = lesson.playPosition
-    currentTime.value = lesson.playPosition
-    progress.value = duration.value > 0
-      ? Math.min(100, (currentTime.value / duration.value) * 100)
-      : 0
-  } else if (lesson?.completed) {
-    // 已完成但没有保存位置，显示完成状态
-    currentTime.value = 0
-    progress.value = 100
-    initialTime.value = 0
-  } else {
-    initialTime.value = 0
-    currentTime.value = 0
-    progress.value = 0
-  }
 
   // 切换视频源后需要重建 context
   videoContext = null
   nextTick(() => {
     getVideoContext()
   })
+  // 有保存进度/已完成时弹续播或完成提示，否则从头开始
+  offerLessonPlayback(index)
+}
+
+// 续播/完成提示：决定是弹窗还是直接从头开始
+function offerLessonPlayback(index: number) {
+  const lesson = lessons.value[index]
+  if (!lesson) return
+  // 先重置播放状态，用户未选择前不自动 seek
+  initialTime.value = 0
+  currentTime.value = 0
+  progress.value = 0
+  resumePositionText.value = lesson.playPosition > 0 ? formatTime(Math.floor(lesson.playPosition)) : ''
+
+  const action = decidePlaybackAction(lesson, resumeShownSet.value)
+
+  switch (action.type) {
+    case 'restart':
+      // 已完成：从头播放（播放位置在末尾无意义）
+      playLessonFrom(0, true)
+      break
+    case 'resume':
+      // 有进度：直接断点续播
+      playLessonFrom(action.position, true)
+      break
+    case 'show_completed':
+      // 已完成 → 去答题 / 从头开始
+      resumeMode.value = 'completed'
+      showResumeDialog.value = true
+      resumeShownSet.value.add(lesson.documentId)
+      break
+    case 'show_resume':
+      // 有保存进度 → 续播 / 从头开始
+      resumeMode.value = 'resume'
+      showResumeDialog.value = true
+      resumeShownSet.value.add(lesson.documentId)
+      break
+    case 'start':
+      // 无进度：从头开始（不自动播放，等待用户点击播放按钮）
+      currentTime.value = 0
+      progress.value = 0
+      initialTime.value = 0
+      break
+  }
+}
+
+// 从指定位置开始播放（可选自动播放）
+function playLessonFrom(seconds: number, shouldPlay = true) {
+  const lesson = currentLesson.value
+  if (!lesson) return
+  initialTime.value = seconds
+  currentTime.value = seconds
+  duration.value = lesson.duration || 0
+  progress.value = duration.value > 0 ? Math.min(100, (seconds / duration.value) * 100) : 0
+  videoContext = null
+  nextTick(() => {
+    const ctx = getVideoContext()
+    if (ctx) {
+      ctx.seek(seconds)
+      if (shouldPlay) ctx.play()
+    }
+  })
+}
+
+// 续播弹窗：从上次位置继续播放
+function onResumeContinue() {
+  showResumeDialog.value = false
+  const pos = currentLesson.value?.playPosition || 0
+  playLessonFrom(pos, true)
+}
+
+// 续播/完成弹窗：从头开始播放
+function onResumeRestart() {
+  showResumeDialog.value = false
+  playLessonFrom(0, true)
+}
+
+// 完成弹窗：去答题
+function onResumeGoQuiz() {
+  showResumeDialog.value = false
+  startQuiz()
 }
 
 // 视频事件处理
@@ -401,9 +574,10 @@ function onTimeUpdate(e: any) {
   const dur = Math.floor(e.detail.duration || 0)
   
   currentTime.value = curTime
+  const pct = computeProgress(curTime, dur)
   if (dur > 0) {
     duration.value = dur
-    progress.value = (curTime / dur) * 100
+    if (pct !== null) progress.value = pct
   }
 
   // 播放进度 >= 100% 标记完成
@@ -481,6 +655,7 @@ async function markLessonComplete() {
 
   if (!lesson.completed) {
     lesson.completed = true
+    lesson.progressPercent = 100
     uni.showToast({ title: '课时完成！', icon: 'success' })
     const saved = await saveLearningProgress()
     if (saved && (saved as any).id && !lesson.progressId) {
@@ -502,9 +677,7 @@ async function tryClaimLessonPoints(lesson: any) {
   const pointChannelId = ch.pointChannel?.id ?? ch.pointChannel ?? null
 
   // specific 模式 + flag=true + 多个候选渠道 → 弹选择器
-  const needPicker = featureFlagChannelCrossPoints.value
-    && ch.channelScope === 'specific'
-    && channelIds.length > 1
+  const needPicker = shouldShowChannelPicker(ch.channelScope, channelIds, featureFlagChannelCrossPoints.value)
 
   const doClaim = async (selectedChannelId?: number | string) => {
     try {
@@ -520,10 +693,7 @@ async function tryClaimLessonPoints(lesson: any) {
   }
 
   if (needPicker) {
-    const labels = channelIds.map((id) => {
-      const isDefault = String(id) === String(pointChannelId)
-      return `${id}${isDefault ? '（默认）' : ''}`
-    })
+    const labels = buildChannelLabels(channelIds, pointChannelId)
     uni.showActionSheet({
       itemList: labels,
       success: (res) => doClaim(channelIds[res.tapIndex]),
@@ -535,28 +705,34 @@ async function tryClaimLessonPoints(lesson: any) {
   doClaim()
 }
 
-function formatTime(seconds: number) {
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-}
-
-function formatDuration(val: any) {
-  const totalSeconds = Number(val) || 0
-  if (totalSeconds <= 0) return ''
-  const hours = Math.floor(totalSeconds / 3600)
-  const mins = Math.floor((totalSeconds % 3600) / 60)
-  const secs = totalSeconds % 60
-  const parts: string[] = []
-  if (hours > 0) parts.push(`${hours}小时`)
-  if (mins > 0) parts.push(`${mins}分钟`)
-  if (secs > 0) parts.push(`${secs}秒`)
-  return parts.join('') || '0秒'
-}
-
 function goToNext() {
   if (currentLessonIndex.value < lessons.value.length - 1) {
     selectLesson(currentLessonIndex.value + 1)
+  }
+}
+
+// 顺序锁定弹窗：去学习前置课时
+function handleLockGoto() {
+  lockDialogVisible.value = false
+  if (lockGotoLessonIndex.value >= 0) {
+    // 直接切换到前置课时（已通过锁定检查或者前置课时自身无锁）
+    saveLearningProgress()
+    currentLessonIndex.value = lockGotoLessonIndex.value
+    hasMarkedComplete = false
+    videoContext = null
+    offerLessonPlayback(lockGotoLessonIndex.value)
+  }
+}
+
+// 顺序锁定弹窗：软锁跳过，继续学习原课时
+function handleLockSkip() {
+  lockDialogVisible.value = false
+  if (lockOriginalLessonIndex.value >= 0) {
+    saveLearningProgress()
+    currentLessonIndex.value = lockOriginalLessonIndex.value
+    hasMarkedComplete = false
+    videoContext = null
+    offerLessonPlayback(lockOriginalLessonIndex.value)
   }
 }
 
@@ -577,17 +753,21 @@ async function startQuiz() {
     uni.showToast({ title: '请先完成学习', icon: 'none' })
     return
   }
-  
-  if (todayQuizCount.value >= maxDailyQuiz.value) {
-    uni.showToast({ title: `今日答题次数已达上限(${maxDailyQuiz.value}次)`, icon: 'none' })
+
+  // 答题按钮锁定检查：领分后不允许重复答题（allowRetakeQuiz=true 时跳过此检查）
+  if (isQuizButtonLocked.value) {
+    uni.showToast({ title: '已完成答题，无法重复答题', icon: 'none' })
     return
   }
-  
+
   // 检查是否已获得本课时积分（练习模式）
-  isPracticeMode.value = false
   const lid = currentLesson.value?.documentId
-  if (lid && earnedLessonIds.value.has(lid)) {
-    isPracticeMode.value = true
+  isPracticeMode.value = lid ? isQuizPracticeMode(earnedLessonIds.value, lid) : false
+
+  // 每日答题次数限制仅对正式答题（非练习模式）生效，练习模式不消耗次数
+  if (!canTakeFormalQuiz(isPracticeMode.value, todayQuizCount.value, maxDailyQuiz.value)) {
+    uni.showToast({ title: `今日答题次数已达上限(${maxDailyQuiz.value}次)`, icon: 'none' })
+    return
   }
   
   try {
@@ -617,25 +797,14 @@ async function startQuiz() {
 }
 
 function isCorrectAnswer(key: string): boolean {
-  const answer = currentCorrectAnswer.value
-  const isArray = Array.isArray(answer)
-  return isArray ? answer.includes(key) : String(answer) === String(key)
+  return judgeCorrectAnswer(currentCorrectAnswer.value, key)
 }
 
 function selectOption(key: string) {
   if (showResult.value) return
   
   const questionType = currentQuestion.value?.type
-  if (questionType === 'single_choice' || questionType === 'true_false') {
-    selectedAnswers.value = [key]
-  } else {
-    const index = selectedAnswers.value.indexOf(key)
-    if (index > -1) {
-      selectedAnswers.value.splice(index, 1)
-    } else {
-      selectedAnswers.value.push(key)
-    }
-  }
+  selectedAnswers.value = toggleSelection(selectedAnswers.value, key, questionType)
 }
 
 async function submitAnswer() {
@@ -654,19 +823,18 @@ async function submitAnswer() {
     
     if (isCorrect.value) {
       quizSuccessCount.value++
-      let earned = 0
-      if (pointsConfig.value.enabled && !isPracticeMode.value) {
-        if (pointsConfig.value.pointsType === 'quiz_points') {
-          earned = currentQuestion.value?.points || 0
-        } else {
-          earned = pointsConfig.value.perQuestionPoints
-        }
-      }
+      const earned = computeEarnedPoints(
+        isCorrect.value,
+        pointsConfig.value,
+        isPracticeMode.value,
+        currentQuestion.value,
+        pointsConfig.value.perQuestionPoints
+      )
       earnedPointsPerQuestion.value.push(earned)
     } else {
       // 答错：检查是否还有重试机会
       currentRetryCount.value++
-      const canRetry = quizRetryEnabled.value && currentRetryCount.value <= quizMaxRetryCount.value
+      const canRetry = canRetryAnswer(quizRetryEnabled.value, currentRetryCount.value, quizMaxRetryCount.value)
       if (!canRetry) {
         earnedPointsPerQuestion.value.push(0)
       }
@@ -686,60 +854,70 @@ function nextQuestion() {
 }
 
 async function completeQuiz() {
-  todayQuizCount.value++
-  
-  const totalEarned = earnedPointsPerQuestion.value.reduce((sum, p) => sum + p, 0)
-  
+  // 练习模式不消耗每日答题次数
+  if (!isPracticeMode.value) {
+    todayQuizCount.value++
+  }
+
+  const totalEarned = sumEarnedPoints(earnedPointsPerQuestion.value)
+
   // 练习模式或无积分，直接关闭
   if (isPracticeMode.value || !pointsConfig.value.enabled || totalEarned <= 0) {
     showQuiz.value = false
     uni.showToast({ title: isPracticeMode.value ? '练习完成！' : '答题完成！', icon: 'success' })
     return
   }
-  
+
+  // 一次性积分：领取前弹确认框，避免误领
+  pendingClaimTotal.value = totalEarned
+  showClaimConfirmDialog.value = true
   // 先关闭答题遮罩（避免后续弹窗被遮挡）
   showQuiz.value = false
-  
-  setTimeout(async () => {
-    let availableChannels: any[] = []
-    
-    if (channelConfig.value && Array.isArray(channelConfig.value.channelIds)) {
-      // specific 模式：channelIds 是 id 数组，fallback name 显示 id
-      availableChannels = (channelConfig.value.channelIds || []).map((id: any) => ({
-        documentId: id,
-        name: id,
-        id
-      }))
-    }
-    
-    if (availableChannels.length === 0) {
-      const shouldFetchAvailable =
-        channelConfig.value?.channelScope === 'all' ||
-        (channelConfig.value?.channelScope === 'specific' && availableChannels.length === 0)
-      if (shouldFetchAvailable) {
-        try {
-          const channelRes = await request('/zhao-common/v1/channels/available', { method: 'GET' })
-          const channels = (channelRes as any)?.data || []
-          // 去重保留完整对象
-          availableChannels = [...new Map(channels.map((c: any) => [c.documentId, c])).values()]
-        } catch (e) {
-          console.warn('[获取可用渠道失败]', e)
-        }
-      }
-    }
+}
 
-    const needPicker = availableChannels.length > 1
+// 确认领取一次性积分
+async function onClaimConfirm() {
+  showClaimConfirmDialog.value = false
+  await doClaimFlow(pendingClaimTotal.value)
+}
 
-    if (needPicker) {
-      channelPickerList.value = availableChannels
-      pendingClaimTotal.value = totalEarned
-      showChannelPicker.value = true
-    } else if (availableChannels.length === 1) {
-      await claimWithChannel(availableChannels[0].documentId, totalEarned)
-    } else {
-      uni.showToast({ title: '无可选渠道', icon: 'none' })
+// 取消领取一次性积分
+function onClaimCancel() {
+  showClaimConfirmDialog.value = false
+  uni.showToast({ title: '已取消领取', icon: 'none' })
+}
+
+// 实际领取流程：获取渠道 → 单渠道直接领 / 多渠道弹选择器
+async function doClaimFlow(totalEarned: number) {
+  let availableChannels: any[] = []
+
+  if (channelConfig.value && Array.isArray(channelConfig.value.channelIds)) {
+    // specific 模式：channelIds 是 id 数组，fallback name 显示 id
+    availableChannels = buildChannelOptions(channelConfig.value.channelIds)
+  }
+
+  if (shouldFetchAvailableChannels(channelConfig.value, availableChannels)) {
+    try {
+      const channelRes = await request('/zhao-common/v1/channels/available', { method: 'GET' })
+      const channels = (channelRes as any)?.data || []
+      // 去重保留完整对象
+      availableChannels = dedupeChannels(channels)
+    } catch (e) {
+      console.warn('[获取可用渠道失败]', e)
     }
-  }, 300)
+  }
+
+  const needPicker = availableChannels.length > 1
+
+  if (needPicker) {
+    channelPickerList.value = availableChannels
+    pendingClaimTotal.value = totalEarned
+    showChannelPicker.value = true
+  } else if (availableChannels.length === 1) {
+    await claimWithChannel(availableChannels[0].documentId, totalEarned)
+  } else {
+    uni.showToast({ title: '无可选渠道', icon: 'none' })
+  }
 }
 
 async function claimWithChannel(selectedChannelId: string, totalEarned: number) {
@@ -752,6 +930,9 @@ async function claimWithChannel(selectedChannelId: string, totalEarned: number) 
     })
     const earned = (claimRes as any)?.pointsEarned || 0
     pointsBalance.value += earned
+    // 领取积分成功后，立即把当前课时标记为已领积分，触发答题按钮置灰（allowRetakeQuiz=false 时）
+    const lid = currentLesson.value?.documentId
+    if (lid) earnedLessonIds.value.add(lid)
     uni.showToast({ title: `获得${earned}积分！`, icon: 'success' })
   } catch (e: any) {
     const errMsg = (e as any)?.error || '积分领取失败'
@@ -1015,6 +1196,14 @@ onUnmounted(() => {
   font-size: 28rpx;
 }
 
+.lock-icon {
+  font-size: 28rpx;
+}
+
+.lock-icon.soft-lock {
+  font-size: 24rpx;
+}
+
 // 答题相关样式
 .quiz-overlay {
   position: fixed;
@@ -1263,6 +1452,202 @@ onUnmounted(() => {
     background: #ccc;
     color: #999;
     pointer-events: none;
+  }
+}
+
+// 续播/完成弹窗
+.resume-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  animation: fadeIn 0.2s ease;
+}
+
+.resume-modal {
+  width: 78%;
+  background: #fff;
+  border-radius: 32rpx;
+  padding: 48rpx 36rpx 36rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.18);
+  animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.resume-icon {
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52rpx;
+  margin-bottom: 24rpx;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  box-shadow: 0 8rpx 24rpx rgba(102, 126, 234, 0.4);
+}
+
+.resume-header {
+  margin-bottom: 16rpx;
+}
+
+.resume-title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.resume-body {
+  margin-bottom: 40rpx;
+}
+
+.resume-desc {
+  font-size: 28rpx;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.resume-time {
+  color: #667eea;
+  font-weight: bold;
+  font-size: 30rpx;
+}
+
+.resume-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.resume-btn {
+  padding: 26rpx;
+  border-radius: 16rpx;
+  text-align: center;
+  font-size: 30rpx;
+  font-weight: bold;
+  transition: transform 0.1s ease;
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &.primary {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+    box-shadow: 0 8rpx 20rpx rgba(102, 126, 234, 0.35);
+  }
+
+  &.secondary {
+    background: #f3f4f6;
+    color: #6b7280;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 答题积分领取确认弹窗 */
+.claim-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1150;
+  animation: fadeIn 0.2s ease;
+}
+
+.claim-confirm-modal {
+  width: 78%;
+  background: #fff;
+  border-radius: 32rpx;
+  padding: 48rpx 36rpx 36rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.18);
+  animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.claim-confirm-icon {
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52rpx;
+  margin-bottom: 24rpx;
+  background: linear-gradient(135deg, #f6ad55, #ed8936);
+  box-shadow: 0 8rpx 24rpx rgba(246, 173, 85, 0.4);
+}
+
+.claim-confirm-title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #1f2937;
+  margin-bottom: 16rpx;
+}
+
+.claim-confirm-desc {
+  font-size: 28rpx;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.6;
+  margin-bottom: 40rpx;
+}
+
+.claim-confirm-points {
+  color: #ed8936;
+  font-weight: bold;
+  font-size: 30rpx;
+}
+
+.claim-confirm-actions {
+  width: 100%;
+  display: flex;
+  gap: 20rpx;
+}
+
+.claim-confirm-btn {
+  flex: 1;
+  padding: 26rpx;
+  border-radius: 16rpx;
+  text-align: center;
+  font-size: 30rpx;
+  font-weight: bold;
+
+  &.cancel {
+    background: #f3f4f6;
+    color: #6b7280;
+  }
+
+  &.primary {
+    background: linear-gradient(135deg, #f6ad55, #ed8936);
+    color: #fff;
+    box-shadow: 0 8rpx 20rpx rgba(237, 137, 54, 0.35);
   }
 }
 </style>
