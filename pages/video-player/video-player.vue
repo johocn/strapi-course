@@ -45,7 +45,7 @@
         v-for="(lesson, index) in lessons" 
         :key="lesson.documentId" 
         :class="['lesson-item', { active: currentLessonIndex === index, completed: lesson.completed }]"
-        @click="selectLesson(index)"
+        @click="handleLessonClick(index)"
       >
         <view class="lesson-number">{{ index + 1 }}</view>
         <view class="lesson-info">
@@ -448,6 +448,74 @@ function getLessonLockStatus(lesson: any) {
     },
     allItems
   )
+}
+
+// 课时列表点击：区分点击当前课时（续播提示/播放暂停切换）与切换课时
+function handleLessonClick(index: number) {
+  const lesson = lessons.value[index]
+  if (!lesson) return
+
+  // 顺序锁定检查
+  const lockResult = getLessonLockStatus(lesson)
+  if (lockResult.locked) {
+    lockDialogMode.value = lockResult.enforceMode
+    lockDialogReason.value = lockResult.reason
+    const firstIncompleteId = lockResult.firstIncomplete?.documentId
+    lockGotoLessonIndex.value = lessons.value.findIndex(l => l.documentId === firstIncompleteId)
+    lockOriginalLessonIndex.value = index
+    lockDialogVisible.value = true
+    return
+  }
+
+  if (index === currentLessonIndex.value) {
+    // 点击当前课时：首次未提示且有进度 → 弹续播提示框；否则播放/暂停切换
+    handleCurrentLessonClick(lesson)
+  } else {
+    // 点击其他课时：先暂停上一个播放，再决定续播提示或从头播放
+    handleSwitchLesson(index, lesson)
+  }
+}
+
+// 点击当前课时
+function handleCurrentLessonClick(lesson: any) {
+  // 未提示过且进度>0 → 弹出续播提示框
+  if (!resumeShownSet.value.has(lesson.documentId) && lesson.playPosition > 0) {
+    saveLearningProgress()
+    resumeMode.value = 'resume'
+    resumePositionText.value = formatTime(Math.floor(lesson.playPosition))
+    showResumeDialog.value = true
+    resumeShownSet.value.add(lesson.documentId)
+    return
+  }
+  // 播放/暂停切换
+  const ctx = getVideoContext()
+  if (!ctx) return
+  if (isPlaying.value) {
+    ctx.pause()
+    isPlaying.value = false
+  } else {
+    ctx.play()
+    isPlaying.value = true
+  }
+}
+
+// 切换到其他课时
+async function handleSwitchLesson(index: number, lesson: any) {
+  // 先暂停上一个播放
+  const curCtx = getVideoContext()
+  if (curCtx) curCtx.pause()
+  stopProgressSaveTimer()
+  await saveLearningProgress()
+
+  currentLessonIndex.value = index
+  hasMarkedComplete = false
+  duration.value = lesson?.duration || 0
+  videoContext = null
+  nextTick(() => {
+    getVideoContext()
+    // 有进度/已完成 → 弹续播或完成提示；否则从头开始
+    offerLessonPlayback(index)
+  })
 }
 
 function selectLesson(index: number) {
