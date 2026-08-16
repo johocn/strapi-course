@@ -953,17 +953,12 @@ async function doClaimFlow(totalEarned: number) {
   } else if (availableChannels.length === 1) {
     await claimWithChannel(availableChannels[0].documentId, totalEarned)
   } else {
-    // 无候选渠道：回退到课程默认渠道（pointChannel），避免"必须选择积分充值渠道"报错
-    const pointChannelId = channelConfig.value?.pointChannelId
-    if (pointChannelId) {
-      await claimWithChannel(pointChannelId, totalEarned)
-    } else {
-      uni.showToast({ title: '无可选渠道', icon: 'none' })
-    }
+    // 无候选渠道：不传渠道，交由后端用用户当前渠道兜底
+    await claimWithChannel(undefined, totalEarned)
   }
 }
 
-async function claimWithChannel(selectedChannelId: string, totalEarned: number) {
+async function claimWithChannel(selectedChannelId: string | undefined, totalEarned: number) {
   try {
     const claimRes = await claimQuizPoints({
       courseDocumentId: courseDocumentId.value!,
