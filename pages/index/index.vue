@@ -127,17 +127,27 @@
       @apply="handleApplyFilter"
       @reset="handleResetFilter"
     />
+
+    <!-- 顺序锁定弹窗 -->
+    <SequenceLockDialog
+      v-model:visible="lockDialogVisible"
+      :enforce-mode="lockDialogMode"
+      :reason="lockDialogReason"
+      @goto="handleLockGoto"
+      @skip="handleLockSkip"
+    />
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
-import { getCourseList, getPointBalance, getCourseCategories, getInviteStats, getTags } from '../../services/api'
+import { getCourseList, getPointBalance, getCourseCategories, getInviteStats, getTags, getMyCourseProgresses } from '../../services/api'
 import { validateLogin, getAuthUser, checkLogin } from '../../utils/auth'
 import { getImageUrl } from '../../utils/env'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
+import { checkItemLock, isCourseCompleted } from '../../utils/sequence-lock'
 import type { Course, Tag } from '../../services/api'
 import {
   DEFAULT_FILTER_STATE,
@@ -153,6 +163,7 @@ import CourseSortBar from '../../components/course-sort-bar/course-sort-bar.vue'
 import CourseFilterChips from '../../components/course-filter-chips/course-filter-chips.vue'
 import CourseFilterDrawer from '../../components/course-filter-drawer/course-filter-drawer.vue'
 import CourseActiveFilters from '../../components/course-active-filters/course-active-filters.vue'
+import SequenceLockDialog from '../../components/sequence-lock-dialog/sequence-lock-dialog.vue'
 
 // #ifdef H5
 import { isWechatBrowser } from '../../utils/env'
@@ -183,6 +194,14 @@ const filterState = ref<CourseFilterState>({ ...DEFAULT_FILTER_STATE })
 const drawerVisible = ref(false)
 const tagList = ref<Tag[]>([])
 const totalCourses = ref(0)
+
+// 顺序锁定状态
+const courseProgressMap = ref<Record<string, boolean>>({})  // documentId → isCompleted
+const lockDialogVisible = ref(false)
+const lockDialogMode = ref(false)  // false=软锁, true=硬锁
+const lockDialogReason = ref('')
+const lockGotoCourseId = ref<string>('')  // 前置未完成课程 ID（去学习按钮跳转目标）
+const lockOriginalCourseId = ref<string>('')  // 用户原本想打开的课程 ID（软锁跳过按钮跳转目标）
 
 // 防抖计时器
 let debounceTimer: any = null
@@ -411,12 +430,35 @@ async function loadCourses() {
     })
     courseList.value = res?.data || []
     totalCourses.value = res?.meta?.pagination?.total || courseList.value.length
+
+    // 加载课程进度（用于顺序锁定判定）
+    await loadCourseProgress()
   } catch (e) {
     console.error('加载课程失败', e)
     courseList.value = []
     totalCourses.value = 0
   }
   loading.value = false
+}
+
+// 加载课程完成状态（用于顺序锁定判定）
+async function loadCourseProgress() {
+  if (!validateLogin()) return
+  try {
+    const res: any = await getMyCourseProgresses()
+    const list = res?.data || res || []
+    const map: Record<string, boolean> = {}
+    for (const item of list) {
+      if (item.course?.documentId) {
+        map[item.course.documentId] = item.isCompleted === true
+      } else if (item.documentId) {
+        map[item.documentId] = item.isCompleted === true
+      }
+    }
+    courseProgressMap.value = map
+  } catch (e) {
+    console.warn('加载课程进度失败（可能未登录）', e)
+  }
 }
 
 // 加载标签列表
@@ -465,12 +507,64 @@ function goToCourseDetail(id: string) {
     })
     return
   }
-  
+
   if (!validateLogin()) {
     uni.navigateTo({ url: '/pages/login/login' })
     return
   }
+
+  // 顺序锁定检查
+  const target = courseList.value.find(c => c.documentId === id)
+  if (target && target.sequenceTag && (target.sequenceNumber ?? 0) > 0) {
+    // 构造锁定判定所需数据
+    const allItems = courseList.value
+      .filter(c => c.sequenceTag && (c.sequenceNumber ?? 0) > 0)
+      .map(c => ({
+        documentId: c.documentId,
+        title: c.title,
+        sequenceNumber: c.sequenceNumber ?? 0,
+        sequenceTag: c.sequenceTag,
+        enforceSequence: c.enforceSequence ?? false,
+        isCompleted: courseProgressMap.value[c.documentId] ?? false
+      }))
+    const lockResult = checkItemLock(
+      {
+        documentId: target.documentId,
+        title: target.title,
+        sequenceNumber: target.sequenceNumber ?? 0,
+        sequenceTag: target.sequenceTag,
+        enforceSequence: target.enforceSequence ?? false,
+        isCompleted: courseProgressMap.value[target.documentId] ?? false
+      },
+      allItems
+    )
+    if (lockResult.locked) {
+      lockDialogMode.value = lockResult.enforceMode
+      lockDialogReason.value = lockResult.reason
+      lockGotoCourseId.value = lockResult.firstIncomplete?.documentId || ''
+      lockOriginalCourseId.value = id
+      lockDialogVisible.value = true
+      return
+    }
+  }
+
   uni.navigateTo({ url: `/pages/course-detail/course-detail?courseId=${id}` })
+}
+
+// 顺序锁定弹窗：去学习前置课程
+function handleLockGoto() {
+  lockDialogVisible.value = false
+  if (lockGotoCourseId.value) {
+    uni.navigateTo({ url: `/pages/course-detail/course-detail?courseId=${lockGotoCourseId.value}` })
+  }
+}
+
+// 顺序锁定弹窗：软锁跳过，继续学习当前课程
+function handleLockSkip() {
+  lockDialogVisible.value = false
+  if (lockOriginalCourseId.value) {
+    uni.navigateTo({ url: `/pages/course-detail/course-detail?courseId=${lockOriginalCourseId.value}` })
+  }
 }
 
 // 跳转到登录页

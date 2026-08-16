@@ -18,6 +18,11 @@ export interface AuthConfig {
   shareDescription: string
   shareImage: string
   sharePath: string
+
+  // 海报兜底配置（用户未登录/信息缺失时使用）
+  posterDefaultUserName: string
+  posterDefaultUserAvatar: string
+  posterDefaultRecommendReason: string
   
   // 认证配置
   mode: 'local' | 'third' | 'sso'
@@ -98,6 +103,9 @@ const DEFAULT_CONFIG: AuthConfig = {
   shareDescription: '',
   shareImage: '',
   sharePath: '/pages/index/index',
+  posterDefaultUserName: '',
+  posterDefaultUserAvatar: '',
+  posterDefaultRecommendReason: '',
   mode: 'local',
   authMode: 'local',
   methods: ['password'],
@@ -141,6 +149,11 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
       shareDescription: data.site?.shareDescription ?? DEFAULT_CONFIG.shareDescription,
       shareImage: resolveMediaUrl(data.site?.shareImage),
       sharePath: data.site?.sharePath ?? DEFAULT_CONFIG.sharePath,
+
+      // 海报兜底配置
+      posterDefaultUserName: data.site?.posterDefaultUserName ?? DEFAULT_CONFIG.posterDefaultUserName,
+      posterDefaultUserAvatar: resolveMediaUrl(data.site?.posterDefaultUserAvatar) || DEFAULT_CONFIG.posterDefaultUserAvatar,
+      posterDefaultRecommendReason: data.site?.posterDefaultRecommendReason ?? DEFAULT_CONFIG.posterDefaultRecommendReason,
 
       // 认证配置
       mode: data.auth?.mode ?? DEFAULT_CONFIG.mode,

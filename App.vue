@@ -13,6 +13,7 @@ import { silentLogin, checkAndAuthorize } from './utils/wx-login'
 import { isWechatBrowser } from './utils/env'
 import { initJSSDK, configShareWithInvite, setPageShare } from './utils/wx-jssdk'
 import { redirectToWechatAuth } from './utils/wx-h5-login'
+import { shouldUseSso, buildSsoRedirectUrl } from './utils/login-chain'
 
 // 暴露 setPageShare 到全局，供各页面 onShow 调用
 if (typeof window !== 'undefined') {
@@ -128,24 +129,14 @@ export default {
       // 未登录，按优先级自动跳转
       const mode = authConfig.mode || 'local'
 
-      // 优先级 1：SSO 模式 → 自动跳 SSO 统一登录
+      // 优先级 1：SSO（ssoEnabled 且 ssoLoginUrl 已配置）→ 自动跳 SSO 统一登录
       // 在 App.vue 直接跳转，避免用户看到页面闪烁后再跳
-      if (mode === 'sso' && authConfig.ssoLoginUrl) {
-        // return_url 和 c_end_url 都指向 C 端 auth-callback 页面
-        // SSO 认证完成后，login-callback.vue 直接携带 token 跳回 C 端 auth-callback 写入登录态
-        const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
-        const params = new URLSearchParams({
-          app_code: authConfig.ssoAppCode || 'course',
-          return_url: cEndCallback,
-          c_end_url: cEndCallback,
-        })
-        const userInviteCode = uni.getStorageSync('inviteCode') || ''
-        const channelInvite = uni.getStorageSync('channelInviteCode') || ''
-        if (userInviteCode) params.append('invite_code', userInviteCode)
-        if (channelInvite) params.append('channel_code', channelInvite)
-        const sep = authConfig.ssoLoginUrl.includes('?') ? '&' : '?'
-        window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
-        return
+      if (shouldUseSso(authConfig)) {
+        const ssoUrl = buildSsoRedirectUrl(authConfig)
+        if (ssoUrl) {
+          window.location.href = ssoUrl
+          return
+        }
       }
 
       // 优先级 2：third 模式 + 公众号启用 → 微信静默登录
@@ -178,22 +169,21 @@ export default {
       }
     } else {
       // 非微信环境：如果 SSO 模式，也自动跳转（PC 浏览器场景）
-      if (mode === 'sso' && authConfig.ssoLoginUrl) {
-        const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
-        const params = new URLSearchParams({
-          app_code: authConfig.ssoAppCode || 'course',
-          return_url: cEndCallback,
-          c_end_url: cEndCallback,
-        })
-        const userInviteCode = uni.getStorageSync('inviteCode') || ''
-        const channelInvite = uni.getStorageSync('channelInviteCode') || ''
-        if (userInviteCode) params.append('invite_code', userInviteCode)
-        if (channelInvite) params.append('channel_code', channelInvite)
-        const sep = authConfig.ssoLoginUrl.includes('?') ? '&' : '?'
-        window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
-        return
+      // 关键排除页面：auth-callback（SSO 回调用，自己保存 token）、login/register（用户主动进入登录流程）
+      const existingToken = uni.getStorageSync('token')
+      const currentPath = window.location.hash.replace(/^#/, '').split('?')[0] || '/pages/index/index'
+      const isCallbackPage = currentPath.startsWith('/pages/auth-callback/auth-callback')
+      const isAuthPage = currentPath.startsWith('/pages/login/login') || currentPath.startsWith('/pages/register/register')
+      console.log('[App][debug] 非微信环境 SSO 检查, token=', existingToken ? 'exists' : 'none', 'path=', currentPath, 'isCallback=', isCallbackPage)
+      // 已登录、或在回调页/登录注册页时，不自动跳 SSO
+      if (!existingToken && !isCallbackPage && !isAuthPage && shouldUseSso(authConfig)) {
+        const ssoUrl = buildSsoRedirectUrl(authConfig)
+        if (ssoUrl) {
+          window.location.href = ssoUrl
+          return
+        }
       }
-      console.log('[App][debug] 非微信环境，跳过自动登录')
+      console.log('[App][debug] 非微信环境，已登录/回调页/登录页/非SSO，跳过自动登录')
     }
     // #endif
   },

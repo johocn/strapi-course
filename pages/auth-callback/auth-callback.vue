@@ -70,6 +70,14 @@ async function handleOAuthCallback() {
 
     if (token) {
       setToken(token)
+      // 关键：保存 refresh_token 和 expires_in，否则 access_token 过期后无法刷新（SSO 无法持久）
+      const refreshTokenVal = urlParams.get('refresh_token') || hashParams.get('refresh_token') || ''
+      const expiresInVal = urlParams.get('expires_in') || hashParams.get('expires_in') || '900'
+      if (refreshTokenVal) {
+        uni.setStorageSync('refresh_token', refreshTokenVal)
+        // 提前 60 秒标记过期，触发主动刷新（与 services/api.ts 的 isTokenExpiring 逻辑一致）
+        uni.setStorageSync('token_expires_at', String(Date.now() + (Number(expiresInVal) - 60) * 1000))
+      }
       // 优先解析 user 参数（SSO 登录/注册回跳携带的完整用户对象）
       if (userEncoded) {
         try {

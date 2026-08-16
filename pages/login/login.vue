@@ -20,8 +20,40 @@
       <text class="app-slogan">{{ authConfig?.siteDescription ?? '让学习更有价值' }}</text>
     </view>
 
+    <!-- SSO（ssoEnabled 且 ssoLoginUrl 已配置）：SSO 登录，优先级最高 -->
+    <view v-if="shouldUseSso(authConfig)" class="login-form">
+      <view class="form-title">
+        <text>SSO 单点登录</text>
+      </view>
+      <view class="sso-login-info">
+        <text class="sso-desc">本系统使用统一身份认证登录</text>
+      </view>
+      <view class="login-btn" @click="redirectToSso">
+        <text>前往 SSO 登录</text>
+      </view>
+      <!-- 降级：密码登录 -->
+      <view class="fallback-section">
+        <view class="divider">
+          <view class="divider-line"></view>
+          <text class="divider-text">或使用账号密码登录</text>
+          <view class="divider-line"></view>
+        </view>
+        <view class="form-item">
+          <view class="form-label"><text>账号/邮箱</text></view>
+          <input class="form-input" v-model="loginForm.username" type="text" placeholder="请输入账号或邮箱" />
+        </view>
+        <view class="form-item">
+          <view class="form-label"><text>密码</text></view>
+          <input class="form-input" v-model="loginForm.password" :type="showPassword ? 'text' : 'password'" placeholder="请输入密码" />
+        </view>
+        <view :class="['login-btn', { disabled: !canLogin }]" @click="handleLogin">
+          <text>登录</text>
+        </view>
+      </view>
+    </view>
+
     <!-- third 模式 + 微信小程序环境：自动登录中 -->
-    <view v-if="authMode === 'third' && isWechat && !isH5Wechat" class="login-form">
+    <view v-else-if="authMode === 'third' && isWechat && !isH5Wechat" class="login-form">
       <view class="form-title">
         <text>{{ autoLoginDone ? '登录成功' : '正在自动登录...' }}</text>
       </view>
@@ -101,38 +133,6 @@
             <view class="form-label"><text>密码</text></view>
             <input class="form-input" v-model="loginForm.password" :type="showPassword ? 'text' : 'password'" placeholder="请输入密码" />
           </view>
-        </view>
-        <view :class="['login-btn', { disabled: !canLogin }]" @click="handleLogin">
-          <text>登录</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- sso 模式：SSO 登录 -->
-    <view v-else-if="authMode === 'sso'" class="login-form">
-      <view class="form-title">
-        <text>SSO 单点登录</text>
-      </view>
-      <view class="sso-login-info">
-        <text class="sso-desc">本系统使用统一身份认证登录</text>
-      </view>
-      <view class="login-btn" @click="redirectToSso">
-        <text>前往 SSO 登录</text>
-      </view>
-      <!-- 降级：密码登录 -->
-      <view class="fallback-section">
-        <view class="divider">
-          <view class="divider-line"></view>
-          <text class="divider-text">或使用账号密码登录</text>
-          <view class="divider-line"></view>
-        </view>
-        <view class="form-item">
-          <view class="form-label"><text>账号/邮箱</text></view>
-          <input class="form-input" v-model="loginForm.username" type="text" placeholder="请输入账号或邮箱" />
-        </view>
-        <view class="form-item">
-          <view class="form-label"><text>密码</text></view>
-          <input class="form-input" v-model="loginForm.password" :type="showPassword ? 'text' : 'password'" placeholder="请输入密码" />
         </view>
         <view :class="['login-btn', { disabled: !canLogin }]" @click="handleLogin">
           <text>登录</text>
@@ -268,8 +268,8 @@
       </view>
     </view>
 
-    <!-- PC 扫码登录（third 模式 + 非微信 H5 环境 + 开放平台已配置） -->
-    <view v-if="authMode === 'third' && isH5 && !isH5Wechat && openPlatformEnabled" class="login-form" style="margin-top: 30rpx;">
+    <!-- PC 扫码登录（third 模式 + 非微信 H5 环境 + 开放平台已配置，SSO 不可用时） -->
+    <view v-if="!shouldUseSso(authConfig) && authMode === 'third' && isH5 && !isH5Wechat && openPlatformEnabled" class="login-form" style="margin-top: 30rpx;">
       <view class="form-title">
         <text>微信扫码登录</text>
       </view>
@@ -315,8 +315,8 @@
       </view>
     </view>
 
-    <!-- 底部其他登录方式（仅 local 模式 或 third+非微信 显示） -->
-    <view v-if="authMode !== 'sso' && !isH5Wechat" class="login-footer">
+    <!-- 底部其他登录方式（SSO 不可用 且 非微信 H5 显示） -->
+    <view v-if="!shouldUseSso(authConfig) && authMode !== 'sso' && !isH5Wechat" class="login-footer">
       <view class="other-login">
         <view class="divider">
           <view class="divider-line"></view>
@@ -345,6 +345,7 @@ import type { AuthConfig } from '../../services/auth-config'
 import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import { getQrconnectUrl as fetchQrconnectUrl, redirectToOpenPlatformAuth as doRedirectToOpenPlatformAuth } from '../../utils/wx-open-platform-login'
+import { shouldUseSso, buildSsoRedirectUrl } from '../../utils/login-chain'
 // #endif
 
 // === 认证配置状态 ===
@@ -502,8 +503,8 @@ onMounted(async () => {
     // 未登录，按优先级自动跳转
     const mode = authConfig.value?.mode || 'local'
 
-    // 优先级 1：SSO 模式 → 自动跳 SSO 统一登录
-    if (mode === 'sso' && authConfig.value?.ssoLoginUrl) {
+    // 优先级 1：SSO（ssoEnabled 且 ssoLoginUrl 已配置）→ 自动跳 SSO 统一登录
+    if (shouldUseSso(authConfig.value)) {
       redirectToSso()
       return
     }
@@ -563,31 +564,17 @@ function h5WechatFullLogin() {
 
 // === SSO 登录跳转（携带邀请码参数） ===
 function redirectToSso() {
-  const ssoUrl = authConfig.value?.ssoLoginUrl
+  // #ifdef H5
+  const ssoUrl = buildSsoRedirectUrl(authConfig.value)
   if (ssoUrl) {
-    // #ifdef H5
-    // return_url 和 c_end_url 都指向 C 端 auth-callback 页面
-    // SSO 认证完成后，login-callback.vue 直接携带 token 跳回 C 端 auth-callback 写入登录态
-    const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
-    const params = new URLSearchParams({
-      app_code: authConfig.value?.ssoAppCode || 'course',
-      return_url: cEndCallback,
-      c_end_url: cEndCallback,
-    })
-    // 透传邀请码（与 register.vue 保持一致）
-    const userInviteCode = uni.getStorageSync('inviteCode') || ''
-    const channelInvite = uni.getStorageSync('channelInviteCode') || ''
-    if (userInviteCode) params.append('invite_code', userInviteCode)
-    if (channelInvite) params.append('channel_code', channelInvite)
-    const sep = ssoUrl.includes('?') ? '&' : '?'
-    window.location.href = `${ssoUrl}${sep}${params.toString()}`
-    // #endif
-    // #ifndef H5
-    uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })
-    // #endif
-  } else {
-    uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
+    window.location.href = ssoUrl
+    return
   }
+  uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
+  // #endif
+  // #ifndef H5
+  uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })
+  // #endif
 }
 
 // === 开放平台扫码登录（跳转模式） ===

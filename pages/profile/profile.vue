@@ -115,7 +115,11 @@
       </view>
     </view>
 
-    <share-poster :visible="showSharePoster" @close="showSharePoster = false" />
+    <share-poster
+      :visible="showSharePoster"
+      :config="{ templateCode: 'brand_share', pagePath: 'pages/index/index' }"
+      @close="showSharePoster = false"
+    />
 
     <view class="menu-section">
       <view class="section-title">学习相关</view>

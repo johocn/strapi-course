@@ -8,8 +8,6 @@ import { BASE_URL, SITE_DOMAIN } from './env'
 import { getUser } from './storage'
 import { getStoredAuthConfig } from '../services/auth-config'
 
-declare const wx: any
-
 // JS-SDK config 状态(避免未 config 时调用 configShare 静默失败)
 let jssdkReady = false
 let jssdkConfiguring = false
@@ -20,6 +18,19 @@ const DEFAULT_SHARE = {
   title: '学习课程，答题赢积分',
   desc: '快来一起学习吧！',
   imgUrl: `${BASE_URL}/static/share-image.png`,
+}
+
+/**
+ * 获取真正的微信 JS-SDK 对象
+ * uni-app H5 运行时会覆盖 window.wx（发行模式为 {}，开发模式为 uni），
+ * 因此优先使用 index.html 中 jweixin.js 加载后保存的 __jweixinSdk
+ */
+function getWxSdk(): any {
+  const saved = (window as any).__jweixinSdk
+  if (saved && typeof saved.config === 'function') return saved
+  const wxObj = (window as any).wx
+  if (wxObj && typeof wxObj.config === 'function') return wxObj
+  return null
 }
 
 /**
@@ -65,6 +76,13 @@ export async function initJSSDK(): Promise<void> {
   jssdkConfiguring = true
 
   try {
+    const wxSdk = getWxSdk()
+    if (!wxSdk) {
+      jssdkConfiguring = false
+      console.warn('[wx-jssdk] 微信 JS-SDK 未加载（getWxSdk 返回 null）')
+      return
+    }
+
     // 获取当前页面 URL（不含 # 及之后部分，微信签名要求）
     const url = window.location.href.split('#')[0]
 
@@ -73,7 +91,7 @@ export async function initJSSDK(): Promise<void> {
       data: { url }
     }) as any
 
-    wx.config({
+    wxSdk.config({
       debug: false,
       appId: res.appId,
       timestamp: res.timestamp,
@@ -85,7 +103,7 @@ export async function initJSSDK(): Promise<void> {
       ]
     })
 
-    wx.ready(() => {
+    wxSdk.ready(() => {
       jssdkReady = true
       jssdkConfiguring = false
       // 刷新待处理的分享配置
@@ -95,7 +113,7 @@ export async function initJSSDK(): Promise<void> {
       }
     })
 
-    wx.error((err: any) => {
+    wxSdk.error((err: any) => {
       jssdkConfiguring = false
       console.warn('[wx-jssdk] wx.config 失败:', err)
     })
@@ -109,8 +127,10 @@ export async function initJSSDK(): Promise<void> {
  * 应用分享配置到微信(wx.ready 已触发后调用)
  */
 function applyShareConfig(config: ShareConfig): void {
+  const wxSdk = getWxSdk()
+  if (!wxSdk) return
   // 分享给好友
-  wx.updateAppMessageShareData({
+  wxSdk.updateAppMessageShareData({
     title: config.title,
     desc: config.desc ?? '',
     link: config.link,
@@ -118,7 +138,7 @@ function applyShareConfig(config: ShareConfig): void {
     success: () => {}
   })
   // 分享到朋友圈
-  wx.updateTimelineShareData({
+  wxSdk.updateTimelineShareData({
     title: config.title,
     link: config.link,
     imgUrl: config.imgUrl,
@@ -177,7 +197,7 @@ export function configShareWithInvite(pageShare?: PageShareConfig): void {
 export function setPageShare(config: PageShareConfig): void {
   currentPageShare = config
   // 如果 JS-SDK 已初始化，立即刷新分享配置
-  if (typeof wx !== 'undefined') {
+  if (getWxSdk()) {
     configShareWithInvite(config)
   }
 }

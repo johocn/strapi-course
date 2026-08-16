@@ -2,3 +2,8 @@ node_modules/
 unpackage/
 .hbuilderx/
 .DS_Store
+# 工具会话缓存与测试产物，无需提交
+.superpowers/
+tests/e2e/*.png
+tests/e2e/.test_token
+tests/screenshots/

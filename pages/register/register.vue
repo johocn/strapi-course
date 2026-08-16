@@ -117,6 +117,7 @@ import { setupPageShare } from '../../utils/share'
 // #ifdef H5
 import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
+import { shouldUseSso, buildSsoRedirectUrl } from '../../utils/login-chain'
 // #endif
 
 const siteConfig = getStoredAuthConfig()
@@ -164,32 +165,21 @@ onMounted(async () => {
     return
   }
 
-  // SSO 模式：跳 SSO 登录，由 SSO 端处理注册
-  if (authConfig?.mode === 'sso' && authConfig?.ssoLoginUrl) {
+  // SSO（ssoEnabled 且 ssoLoginUrl 已配置，优先级最高）：跳 SSO 登录，由 SSO 端处理注册
+  if (shouldUseSso(authConfig)) {
     // SSO 模式下，若租户关闭了注册，跳登录页让 SSO 端处理（SSO 端可能有注册开关或邀请码注册）
     if (authConfig.registerEnabled === false) {
       uni.redirectTo({ url: '/pages/login/login' })
       return
     }
-    const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
-    const params = new URLSearchParams({
-      app_code: authConfig.ssoAppCode || 'course',
-      return_url: cEndCallback,
-      c_end_url: cEndCallback,
-    })
-    // 与 login.vue 的 redirectToSso 保持一致：同时透传 invite_code（用户码）和 channel_code（渠道码）
-    // 用户码优先取 storage 的 inviteCode，其次回退到 URL 中的 invitecode（兼容旧链接）
-    const userInviteCode = uni.getStorageSync('inviteCode') || ''
-    const channelInvite = uni.getStorageSync('channelInviteCode') || invitecode || ''
-    if (userInviteCode) params.append('invite_code', userInviteCode)
-    else if (invitecode) params.append('invite_code', invitecode)
-    if (channelInvite) params.append('channel_code', channelInvite)
-    // 透传调试参数 debugWx，便于本地端到端模拟微信环境
-    const debugWx = hashParams.get('debugWx')
-    if (debugWx === '1') params.append('debugWx', '1')
-    const sep = authConfig.ssoLoginUrl.includes('?') ? '&' : '?'
-    window.location.href = `${authConfig.ssoLoginUrl}${sep}${params.toString()}`
-    return
+    const ssoUrl = buildSsoRedirectUrl(authConfig)
+    if (ssoUrl) {
+      // 透传调试参数 debugWx，便于本地端到端模拟微信环境
+      const debugWx = hashParams.get('debugWx')
+      const sep = ssoUrl.includes('?') ? '&' : '?'
+      window.location.href = `${ssoUrl}${sep}${debugWx === '1' ? 'debugWx=1' : ''}`
+      return
+    }
   }
 
   // third 模式 + 微信环境 + 公众号启用：自动跳微信静默登录

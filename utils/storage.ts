@@ -69,6 +69,9 @@ export function logout() {
   removeToken()
   removeUser()
   setPoints(0)
+  // 清理 SSO token 刷新相关数据
+  uni.removeStorageSync('refresh_token')
+  uni.removeStorageSync('token_expires_at')
   uni.removeStorageSync('inviteCode')
   uni.removeStorageSync('channelInviteCode')
   uni.removeStorageSync('wxAuthAppType')

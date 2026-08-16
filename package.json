@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "圣麟教育 - 看视频答题赢积分应用",
   "scripts": {
-    "dev:h5": "uni",
-    "build:h5": "uni build",
+    "dev:h5": "set UNI_INPUT_DIR=%cd%&& uni",
+    "build:h5": "set UNI_INPUT_DIR=%cd%&& uni build",
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
     "test": "jest",

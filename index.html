@@ -11,6 +11,13 @@
     </script>
     <title>加载中...</title>
     <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+    <script>
+      // uni-app H5 运行时会覆盖 window.wx（发行模式为 {}，开发模式为 uni），
+      // 必须在覆盖前保存真正的微信 JS-SDK，供 getWxSdk() 使用
+      if (typeof window.wx !== 'undefined' && typeof window.wx.config === 'function') {
+        window.__jweixinSdk = window.wx;
+      }
+    </script>
     <!--preload-links-->
     <!--app-context-->
   </head>
