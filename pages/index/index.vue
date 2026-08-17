@@ -417,11 +417,13 @@ async function loadCategories() {
 async function loadCourses() {
   loading.value = true
   try {
+    const effectiveSort = priceType.value === 'newest' ? 'newest' : sortKey.value
+    const effectivePriceType = priceType.value === 'newest' ? 'all' : priceType.value
     const res: any = await getCourseList({
       category: activeCategory.value,
       q: searchKeyword.value,
-      sort: sortKey.value,
-      priceType: priceType.value,
+      sort: effectiveSort,
+      priceType: effectivePriceType,
       difficulty: filterState.value.difficulty,
       language: filterState.value.language,
       minPrice: filterState.value.priceRange[0],

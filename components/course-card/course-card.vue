@@ -21,6 +21,13 @@
         <text v-else-if="displayType === 'paid'" class="badge-paid">付费</text>
       </view>
 
+      <!-- 精品 / 推荐角标 -->
+      <view class="mark-badges">
+        <text v-if="course.isFeatured" class="mark-badge mark-featured">精品</text>
+        <text v-if="course.isRecommended" class="mark-badge mark-recommended">推荐</text>
+        <text v-if="isNewCourse" class="mark-badge mark-new">新</text>
+      </view>
+
       <!-- 积分标签 -->
       <view v-if="course.enablePoints && course.points > 0" class="points-badge">
         <text>+{{ course.points }}积分</text>
@@ -70,6 +77,15 @@ const displayType = computed<'free' | 'points' | 'paid'>(() => {
   if (props.course.courseType) return props.course.courseType
   if (props.course.isPaid) return 'paid'
   return 'free'
+})
+
+/** 是否最近新发布（7 天内无 publishDate 则按 createdAt 兜底） */
+const isNewCourse = computed(() => {
+  const t = props.course.publishDate || props.course.createdAt
+  if (!t) return false
+  const ts = new Date(t).getTime()
+  if (isNaN(ts)) return false
+  return Date.now() - ts < 7 * 24 * 60 * 60 * 1000
 })
 
 function getDifficultyText(difficulty: string): string {
@@ -181,6 +197,37 @@ function formatCount(n: number): string {
     color: #333;
     font-weight: bold;
   }
+}
+
+/* 精品 / 推荐 / 新 角标 */
+.mark-badges {
+  position: absolute;
+  top: 10rpx;
+  right: 10rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  align-items: flex-end;
+}
+
+.mark-badge {
+  display: inline-block;
+  padding: 4rpx 14rpx;
+  font-size: 20rpx;
+  border-radius: 8rpx;
+  color: #fff;
+}
+
+.mark-featured {
+  background: linear-gradient(135deg, #f6c24b 0%, #e9a00a 100%);
+}
+
+.mark-recommended {
+  background: linear-gradient(135deg, #ff7a59 0%, #f0583c 100%);
+}
+
+.mark-new {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .course-info {

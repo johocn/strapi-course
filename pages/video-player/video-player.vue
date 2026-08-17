@@ -10,18 +10,14 @@
       </view>
     </view>
 
-    <view class="video-player">
+    <view class="video-player" @click="onVideoAreaTap">
       <video
         v-if="mediaUrl"
         :id="videoId"
         :src="mediaUrl"
         :poster="posterUrl"
         :initial-time="initialTime"
-        :controls="true"
-        :show-fullscreen-btn="!!currentLesson?.video_url"
-        :show-play-btn="true"
-        :show-center-play-btn="true"
-        :enable-progress-gesture="true"
+        :controls="false"
         :autoplay="false"
         class="video-element"
         @play="onVideoPlay"
@@ -29,10 +25,63 @@
         @timeupdate="onTimeUpdate"
         @ended="onVideoEnded"
         @loadedmetadata="onLoadedMetadata"
+        @fullscreenchange="onFullscreenChange"
+        @error="onMediaSourceError"
       />
       <view v-else class="video-placeholder">
         <text class="play-icon">▶</text>
         <text class="placeholder-text">暂无音视频内容</text>
+      </view>
+
+      <!-- 防误触锁定遮罩（锁定时拦截触摸，仅保留解锁入口） -->
+      <view v-if="isLocked && mediaUrl" class="lock-overlay" @click.stop>
+        <text class="lock-unlock-btn" @click.stop="toggleLock">🔓</text>
+      </view>
+
+      <!-- 常驻答题按钮（课时有关联测验时显示） -->
+      <view
+        v-if="hasQuiz && !isLocked && mediaUrl"
+        class="answer-float-btn"
+        @click.stop="startQuiz"
+      >
+        <text>📝 答题</text>
+      </view>
+
+      <!-- 自定义控制条 -->
+      <view v-if="showControls && !isLocked && mediaUrl" class="custom-controls" @click.stop>
+        <view class="controls-row">
+          <text class="ctrl-btn" @click="togglePlay">{{ isPlaying ? '⏸' : '▶' }}</text>
+          <view
+            class="progress-wrap"
+            @touchstart.stop="onProgressTouchStart"
+            @touchmove.stop="onProgressTouchMove"
+            @touchend.stop="onProgressTouchEnd"
+          >
+            <view class="progress-track">
+              <view class="progress-played" :style="{ width: progressBarWidth }"></view>
+              <view v-if="seekMode === 'played_only'" class="progress-locked" :style="{ left: progressBarWidth }"></view>
+              <view class="progress-thumb" :style="{ left: progressBarWidth }"></view>
+            </view>
+          </view>
+          <text class="time-text">{{ formatTime(currentTime) }}/{{ formatTime(duration) }}</text>
+          <text v-if="showSpeedBtn" class="ctrl-btn" @click="toggleSpeedPanel">{{ currentSpeed }}x</text>
+          <text v-if="showLandscapeBtn" class="ctrl-btn" @click="toggleLandscape">{{ isFullscreen ? '⛶退出' : '⛶' }}</text>
+          <text v-if="showLockBtn" class="ctrl-btn" @click="toggleLock">🔒</text>
+          <text v-if="showPiPBtn" class="ctrl-btn" @click="togglePiP">▣</text>
+        </view>
+
+        <!-- 倍速面板 -->
+        <view v-if="showSpeedPanel" class="speed-panel">
+          <text
+            v-for="r in SPEED_OPTIONS"
+            :key="r"
+            :class="['speed-option', { active: currentSpeed === r }]"
+            @click="applySpeed(r)"
+          >{{ r }}x</text>
+        </view>
+
+        <!-- 进度锁定提示 -->
+        <text v-if="seekMode === 'locked'" class="seek-locked-tip">🔒 本节课进度锁定</text>
       </view>
     </view>
 
@@ -204,9 +253,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, request } from '../../services/api'
+import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, request, buildStreamSrc, getMyRoles, getSitePublicConfig } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
 import { BASE_URL } from '../../utils/env'
@@ -215,6 +264,14 @@ import { normalizeList, buildProgressMap, enrichLessons, findFirstIncompleteInde
 import { decidePlaybackAction, formatTime, formatDuration, computeProgress } from '../../utils/player-playback'
 import { isCorrectAnswer as judgeCorrectAnswer, toggleSelection, computeEarnedPoints, canRetryAnswer, isQuizPracticeMode, canTakeFormalQuiz, sumEarnedPoints } from '../../utils/quiz-logic'
 import { shouldFetchAvailableChannels, buildChannelOptions, dedupeChannels } from '../../utils/points-store'
+import {
+  parseCourseFeatureFlags,
+  isSpeedEnabled,
+  getSavedSpeed,
+  saveSpeed,
+  SPEED_OPTIONS,
+  type CourseFeatureFlags,
+} from '../../utils/player-features'
 import type { Course, Lesson, QuizQuestion } from '../../services/api'
 import ChannelPicker from '../../components/channel-picker.vue'
 import SequenceLockDialog from '../../components/sequence-lock-dialog/sequence-lock-dialog.vue'
@@ -304,6 +361,40 @@ let videoContext: any = null
 let progressSaveTimer: number | null = null
 let hasMarkedComplete = false
 
+// ===== 播放控制（featureFlags 驱动）=====
+const ff = ref<CourseFeatureFlags>({ configured: false, playbackSpeed: false, allowLandscape: false, screenLock: false, autoNext: false, pictureInPicture: false, vipSpeedOverride: false, seekMode: 'free' })
+const userRoles = ref<string[]>([])
+const speedPrivilegedRoles = ref<string[]>(['admin'])
+const showControls = ref(true)
+const isLocked = ref(false)
+const isFullscreen = ref(false)
+const showSpeedPanel = ref(false)
+const currentSpeed = ref(getSavedSpeed())
+const maxPlayedTime = ref(0)
+let controlsHideTimer: number | null = null
+let dragging = false
+let dragTarget = 0
+let progressRect = { left: 0, width: 0 }
+
+// #ifdef H5
+const isH5 = true
+// #endif
+// #ifndef H5
+const isH5 = false
+// #endif
+
+const hasQuiz = computed(() => (currentLesson.value?.quizzes?.length ?? 0) > 0)
+const showSpeedBtn = computed(() => isSpeedEnabled(ff.value, userRoles.value, speedPrivilegedRoles.value))
+const showLandscapeBtn = computed(() => ff.value.allowLandscape)
+const showLockBtn = computed(() => ff.value.screenLock)
+const showPiPBtn = computed(
+  () => ff.value.pictureInPicture && isH5 && typeof document !== 'undefined' && !!document.pictureInPictureEnabled
+)
+const seekMode = computed(() => ff.value.seekMode)
+const progressBarWidth = computed(() =>
+  duration.value > 0 ? `${(Math.min(currentTime.value, duration.value) / duration.value) * 100}%` : '0%'
+)
+
 const hasEarnedPoints = computed(() => {
   const lid = currentLesson.value?.documentId
   return lid ? earnedLessonIds.value.has(lid) : false
@@ -319,7 +410,52 @@ const currentQuestion = computed(() => questions.value[currentQuestionIndex.valu
 const lessonCompleted = computed(() => currentLesson.value?.completed || false)
 
 // 媒体源：优先 video_url，其次 audio_url（兼容音频课程）
-const mediaUrl = computed(() => currentLesson.value?.video_url || currentLesson.value?.audio_url || '')
+// 真实播放地址经签名流式接口换取，禁止直接使用静态 URL（防未授权直接播放）
+const mediaUrl = ref('')
+let mediaResolveSeq = 0
+let pendingPlaybackResolve: (() => void) | null = null
+let lastMediaErrorAt = 0
+
+/** 解析媒体源（签名 URL），返回解析完成的时间戳用于后续播放时序 */
+async function resolveMediaSrc(): Promise<void> {
+  const raw = currentLesson.value?.video_url || currentLesson.value?.audio_url || ''
+  const seq = ++mediaResolveSeq
+  // 立即清空旧的媒体源：切换课时时 mediaUrl 可能仍指向上一课时，必须先行移除
+  // 否则 playLessonFrom 会误判"媒体源已就绪"而挂起逻辑失效
+  pendingPlaybackResolve = null
+  mediaUrl.value = ''
+  if (!raw) {
+    return
+  }
+  try {
+    const resolved = await buildStreamSrc(raw)
+    if (seq === mediaResolveSeq) mediaUrl.value = resolved
+  } catch (e) {
+    // 鉴权失败（如未登录）时保持原始地址用于错误兜底，由请求层统一跳登录
+    if (seq === mediaResolveSeq) mediaUrl.value = raw
+  }
+}
+
+function onMediaSourceError() {
+  // 签名过期/播放失败：尝试重新换取签名
+  // 限制 5 秒内最多重试一次，避免 @error 反复触发导致换签死循环
+  const now = Date.now()
+  if (now - (lastMediaErrorAt || 0) < 5000) return
+  lastMediaErrorAt = now
+  resolveMediaSrc()
+}
+
+// 课时切换时重新解析媒体源（签名 URL 依赖当前课时）
+watch(() => currentLesson.value?.documentId || '', resolveMediaSrc)
+
+// 媒体源就绪后立即播放挂起的播放动作（断点续播/从头播放）
+// 解决 mediaUrl 异步解析（HTTP 获取签名）晚于 playLessonFrom 执行导致的空播放问题
+watch(mediaUrl, (url) => {
+  if (!url) return
+  const pending = pendingPlaybackResolve
+  pendingPlaybackResolve = null
+  if (pending) pending()
+})
 
 // 封面图：音频课时展示缩略图，提升体验
 const posterUrl = computed(() => {
@@ -344,6 +480,18 @@ async function loadData() {
     ])
     courseDetail.value = courseRes || null
     courseDocumentId.value = (courseRes as any)?.documentId || courseId
+    
+    // 解析课程播放功能开关（未配置=全部关闭）
+    ff.value = parseCourseFeatureFlags((courseRes as any)?.featureFlags)
+    // 注：maxPlayedTime 不在此处初始化——lessons 尚未赋值，
+    // 统一由 offerLessonPlayback 内的 resetPlaybackState 初始化
+
+    // 非阻塞加载：倍速特权角色名单 + 当前用户角色（失败静默，按无特权处理）
+    getSitePublicConfig().then((cfg: any) => {
+      const list = cfg?.site?.speedPrivilegedRoles
+      if (Array.isArray(list)) speedPrivilegedRoles.value = list
+    })
+    getMyRoles().then((roles) => { userRoles.value = roles })
     
     // 处理课时列表数据（可能是数组或 { data: [...] } 结构）
     const lessonData = normalizeList<any>(lessonsRes)
@@ -550,10 +698,179 @@ function selectLesson(index: number) {
   offerLessonPlayback(index)
 }
 
+/** 切换课时时重置播放控制状态（只在 offerLessonPlayback 内调用：
+ * 它覆盖 loadData 初次加载与所有切换路径(selectLesson/handleSwitchLesson/handleLockGoto/handleLockSkip)，
+ * 且调用时 currentLessonIndex 已更新，能读到正确的 playPosition） */
+function resetPlaybackState() {
+  isLocked.value = false
+  showSpeedPanel.value = false
+  showControls.value = true
+  dragging = false
+  maxPlayedTime.value = currentLesson.value?.playPosition || 0
+  if (controlsHideTimer) clearTimeout(controlsHideTimer)
+}
+
+// ===== 播放/暂停与控制条显隐 =====
+function togglePlay() {
+  const ctx = getVideoContext()
+  if (!ctx) return
+  if (isPlaying.value) ctx.pause()
+  else ctx.play()
+  showControlsTemporarily()
+}
+
+function onVideoAreaTap() {
+  if (isLocked.value) return
+  showControls.value = !showControls.value
+  if (showControls.value) showControlsTemporarily()
+}
+
+function showControlsTemporarily() {
+  showControls.value = true
+  restartControlsTimer()
+}
+
+function restartControlsTimer() {
+  if (controlsHideTimer) clearTimeout(controlsHideTimer)
+  controlsHideTimer = setTimeout(() => {
+    if (!isLocked.value) showControls.value = false
+  }, 3000) as unknown as number
+}
+
+// ===== 倍速播放（含记忆与特权放行）=====
+function toggleSpeedPanel() {
+  showSpeedPanel.value = !showSpeedPanel.value
+  restartControlsTimer()
+}
+
+function applySpeed(rate: number) {
+  currentSpeed.value = rate
+  showSpeedPanel.value = false
+  saveSpeed(rate)
+  applyPlaybackRate()
+  restartControlsTimer()
+}
+
+/** 应用倍速：无权限时强制 1x（防止记忆的倍速被应用到无权限课程） */
+function applyPlaybackRate() {
+  const ctx = getVideoContext()
+  if (!ctx) return
+  try {
+    ctx.playbackRate(showSpeedBtn.value ? currentSpeed.value : 1)
+  } catch {}
+}
+
+// ===== 横竖屏 =====
+function toggleLandscape() {
+  const ctx = getVideoContext()
+  if (!ctx) return
+  if (isFullscreen.value) ctx.exitFullScreen()
+  else ctx.requestFullScreen({ direction: 90 })
+}
+
+function onFullscreenChange(e: any) {
+  isFullscreen.value = !!e?.detail?.fullScreen
+}
+
+// ===== 防误触锁定 =====
+function toggleLock() {
+  isLocked.value = !isLocked.value
+  if (isLocked.value) {
+    showControls.value = false
+    showSpeedPanel.value = false
+  } else {
+    showControlsTemporarily()
+  }
+}
+
+// ===== 画中画（仅 H5）=====
+async function togglePiP() {
+  if (!isH5) return
+  const el = (document as any).getElementById(videoId)?.querySelector('video')
+  if (!el || !(document as any).pictureInPictureEnabled) {
+    uni.showToast({ title: '当前环境不支持画中画', icon: 'none' })
+    return
+  }
+  try {
+    if ((document as any).pictureInPictureElement) {
+      await (document as any).exitPictureInPicture()
+    } else {
+      await el.requestPictureInPicture()
+    }
+  } catch (e) {
+    uni.showToast({ title: '画中画不可用', icon: 'none' })
+  }
+}
+
+// ===== 进度控制（seekMode）=====
+/** 获取进度条容器尺寸（跨平台：H5/MP 均可用） */
+function getProgressRect(): Promise<{ left: number; width: number }> {
+  return new Promise((resolve) => {
+    uni.createSelectorQuery()
+      .select('.progress-wrap')
+      .boundingClientRect((rect: any) => resolve(rect || { left: 0, width: 0 }))
+      .exec()
+  })
+}
+
+function clientX(e: any): number {
+  return e?.touches?.[0]?.clientX ?? e?.changedTouches?.[0]?.clientX ?? 0
+}
+
+async function onProgressTouchStart(e: any) {
+  if (isLocked.value) return
+  if (seekMode.value === 'locked') {
+    uni.showToast({ title: '本节课进度锁定', icon: 'none' })
+    return
+  }
+  progressRect = await getProgressRect()
+  dragging = true
+  dragTarget = progressToTime(clientX(e))
+}
+
+function onProgressTouchMove(e: any) {
+  if (!dragging) return
+  dragTarget = progressToTime(clientX(e))
+}
+
+function onProgressTouchEnd() {
+  if (!dragging) return
+  dragging = false
+  handleSeek(dragTarget)
+}
+
+function progressToTime(x: number): number {
+  const { left, width } = progressRect
+  if (!width) return 0
+  const ratio = Math.max(0, Math.min(1, (x - left) / width))
+  return ratio * (duration.value || 0)
+}
+
+/** 按 seekMode 执行 seek：locked=禁拖 / played_only=clamp(≤maxPlayedTime) / free=自由 */
+function handleSeek(target: number) {
+  const dur = duration.value
+  if (dur <= 0) return
+  const mode = seekMode.value
+  if (mode === 'locked') {
+    uni.showToast({ title: '本节课进度锁定', icon: 'none' })
+    return
+  }
+  let t = Math.max(0, Math.min(target, dur))
+  if (mode === 'played_only') {
+    t = Math.min(t, maxPlayedTime.value)
+  }
+  const ctx = getVideoContext()
+  if (ctx) ctx.seek(t)
+  currentTime.value = t
+  progress.value = dur > 0 ? (t / dur) * 100 : 0
+}
+
 // 续播/完成提示：决定是弹窗还是直接从头开始
 function offerLessonPlayback(index: number) {
   const lesson = lessons.value[index]
   if (!lesson) return
+  // 先重置播放控制状态（此时 currentLessonIndex 已更新，能读到正确的 playPosition）
+  resetPlaybackState()
   // 先重置播放状态，用户未选择前不自动 seek
   initialTime.value = 0
   currentTime.value = 0
@@ -600,12 +917,19 @@ function playLessonFrom(seconds: number, shouldPlay = true) {
   currentTime.value = seconds
   duration.value = lesson.duration || 0
   progress.value = duration.value > 0 ? Math.min(100, (seconds / duration.value) * 100) : 0
+  // 媒体源仍在异步解析（mediaUrl 为空，<video> 未渲染）时挂起播放动作，
+  // 待 mediaUrl 就绪后由 watch 触发真正播放，避免 ctx 指向不存在的元素
+  if (!mediaUrl.value) {
+    pendingPlaybackResolve = () => playLessonFrom(seconds, shouldPlay)
+    return
+  }
   videoContext = null
   nextTick(() => {
     const ctx = getVideoContext()
     if (ctx) {
       ctx.seek(seconds)
       if (shouldPlay) ctx.play()
+      applyPlaybackRate()
     }
   })
 }
@@ -652,6 +976,9 @@ function onTimeUpdate(e: any) {
     if (pct !== null) progress.value = pct
   }
 
+  // 维护最大已播时长（供 played_only 模式限制拖回上限；断点续播已初始化到恢复点）
+  if (curTime > maxPlayedTime.value) maxPlayedTime.value = curTime
+
   // 播放进度 >= 100% 标记完成
   if (progress.value >= 98 && !hasMarkedComplete) {
     markLessonComplete()
@@ -665,6 +992,11 @@ function onVideoEnded() {
     markLessonComplete()
   }
   saveLearningProgress()
+  // 自动连播：开了 autoNext 且本节无测验且非末节 → toast + 播下一节
+  if (ff.value.autoNext && !hasQuiz.value && currentLessonIndex.value < lessons.value.length - 1) {
+    uni.showToast({ title: '已自动播放下节', icon: 'none' })
+    goToNext()
+  }
 }
 
 function onLoadedMetadata(e: any) {
@@ -679,6 +1011,8 @@ function onLoadedMetadata(e: any) {
       ctx.seek(initialTime.value)
     }
   }
+  // 应用倍速（含特权放行判定）
+  applyPlaybackRate()
 }
 
 // 定时保存进度（每10秒）
@@ -734,9 +1068,13 @@ async function markLessonComplete() {
       lesson.progressId = (saved as any).id
     }
     // 弹出去答题/继续学习提示；积分仅在答题后通过答题链路发放，不在此处提前领分
-    resumeMode.value = 'completed'
-    showResumeDialog.value = true
-    resumeShownSet.value.add(lesson.documentId)
+    // 自动连播（autoNext && 无测验 && 非末节）时不再弹完成弹窗，交给 onVideoEnded 连播
+    const autoSkip = ff.value.autoNext && !hasQuiz.value && currentLessonIndex.value < lessons.value.length - 1
+    if (!autoSkip) {
+      resumeMode.value = 'completed'
+      showResumeDialog.value = true
+      resumeShownSet.value.add(lesson.documentId)
+    }
   }
 }
 
@@ -1031,6 +1369,7 @@ onUnmounted(() => {
   stopProgressSaveTimer()
   saveLearningProgress()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (controlsHideTimer) clearTimeout(controlsHideTimer)
 })
 </script>
 
@@ -1075,6 +1414,7 @@ onUnmounted(() => {
 .video-player {
   background: #000;
   width: 100%;
+  position: relative;
 }
 
 .video-element {
@@ -1101,6 +1441,151 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.5);
   font-size: 28rpx;
   margin-top: 20rpx;
+}
+
+/* ===== 自定义控制条 ===== */
+.custom-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0));
+  padding: 40rpx 20rpx 20rpx;
+  z-index: 20;
+}
+
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.ctrl-btn {
+  color: #fff;
+  font-size: 32rpx;
+  padding: 10rpx 6rpx;
+  flex-shrink: 0;
+}
+
+.time-text {
+  color: rgba(255,255,255,0.9);
+  font-size: 22rpx;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.progress-wrap {
+  flex: 1;
+  padding: 10rpx 0;
+  touch-action: none;
+}
+
+.progress-track {
+  position: relative;
+  height: 8rpx;
+  background: rgba(255,255,255,0.3);
+  border-radius: 4rpx;
+}
+
+.progress-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: #667eea;
+  border-radius: 4rpx;
+}
+
+.progress-locked {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  background: rgba(255,255,255,0.15);
+}
+
+.progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+}
+
+.speed-panel {
+  position: absolute;
+  bottom: 110rpx;
+  right: 20rpx;
+  background: rgba(0,0,0,0.85);
+  border-radius: 16rpx;
+  padding: 12rpx 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.speed-option {
+  padding: 16rpx 40rpx;
+  color: rgba(255,255,255,0.85);
+  font-size: 26rpx;
+
+  &.active {
+    color: #667eea;
+    font-weight: bold;
+  }
+}
+
+.seek-locked-tip {
+  display: block;
+  margin-top: 10rpx;
+  color: rgba(255,255,255,0.85);
+  font-size: 22rpx;
+  text-align: center;
+}
+
+/* 防误触锁定遮罩 */
+.lock-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lock-unlock-btn {
+  color: #fff;
+  font-size: 60rpx;
+  background: rgba(0,0,0,0.4);
+  border-radius: 50%;
+  width: 110rpx;
+  height: 110rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 常驻答题按钮 */
+.answer-float-btn {
+  position: absolute;
+  top: 20rpx;
+  right: 20rpx;
+  z-index: 16;
+  background: rgba(102,126,234,0.9);
+  color: #fff;
+  font-size: 24rpx;
+  padding: 10rpx 24rpx;
+  border-radius: 30rpx;
+
+  text {
+    color: #fff;
+  }
 }
 
 .lesson-list {

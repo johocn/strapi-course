@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
-    <link rel="stylesheet" href="/assets/uni.3eb55ace.css">
+    <link rel="stylesheet" href="/assets/uni.d9034766.css">
 
     <meta charset="UTF-8" />
     <script>
@@ -13,9 +13,16 @@
     </script>
     <title>shao</title>
     <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+    <script>
+      // uni-app H5 运行时会覆盖 window.wx（发行模式为 {}，开发模式为 uni），
+      // 必须在覆盖前保存真正的微信 JS-SDK，供 getWxSdk() 使用
+      if (typeof window.wx !== 'undefined' && typeof window.wx.config === 'function') {
+        window.__jweixinSdk = window.wx;
+      }
+    </script>
     <!--preload-links-->
     <!--app-context-->
-    <script type="module" crossorigin src="/assets/index-CMFDZz9X.js"></script>
+    <script type="module" crossorigin src="/assets/index-3CEPxCPm.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-CtHydyjr.css">
   </head>
   <body>

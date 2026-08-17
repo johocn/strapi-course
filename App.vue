@@ -131,9 +131,13 @@ export default {
 
       // 优先级 1：SSO（ssoEnabled 且 ssoLoginUrl 已配置）→ 自动跳 SSO 统一登录
       // 在 App.vue 直接跳转，避免用户看到页面闪烁后再跳
-      if (shouldUseSso(authConfig)) {
+      // 关键排除页面：auth-callback（SSO 回调用，自己保存 token）、login/register（用户主动进入登录流程）
+      // 否则 SSO 302 回跳 auth-callback?token=xxx 触发整页刷新再次 onLaunch 时，
+      // token 尚未写入 storage，会再次被轰回 SSO，导致"换微信登录后反复登录、回不到 v.joho.cn"死循环
+      if (!hasCode && !onAuthCallback && !onAuthPage && shouldUseSso(authConfig)) {
         const ssoUrl = buildSsoRedirectUrl(authConfig)
         if (ssoUrl) {
+          console.log('[App][debug] 微信分支 SSO 自动跳转', ssoUrl)
           window.location.href = ssoUrl
           return
         }

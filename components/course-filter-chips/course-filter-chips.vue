@@ -52,6 +52,8 @@ const activeFilterCount = computed(() => {
   gap: 12rpx;
   padding: 0 30rpx;
   margin-bottom: 16rpx;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .chip {
@@ -63,6 +65,7 @@ const activeFilterCount = computed(() => {
   color: #666;
   border: 1rpx solid #eee;
   position: relative;
+  flex-shrink: 0;
 
   &.active {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

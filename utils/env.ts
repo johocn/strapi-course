@@ -2,8 +2,17 @@
 export const BASE_API = import.meta.env?.VITE_API_BASE ?? '/api'
 
 // 图片域名（含协议），Strapi 文件上传地址
-// 生产环境同源，开发环境通过 VITE_BASE_URL 注入
-export const BASE_URL = import.meta.env?.VITE_BASE_URL ?? ''
+// H5 环境动态取当前页面 origin：任意访问域名（v.joho.cn / www.shenglin.vip / 本地代理）下
+// 图片 URL 均自动跟随当前域名，杜绝把某个固定域名硬编码进构建产物导致的跨域图片不显示/缓存错乱
+// 小程序/APP 等非 H5 环境仍通过 VITE_BASE_URL 注入固定地址
+export const BASE_URL = (() => {
+  // #ifdef H5
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin
+  }
+  // #endif
+  return import.meta.env?.VITE_BASE_URL ?? ''
+})()
 
 // 当前站点域名（用于 public/config 识别租户）
 // H5 环境优先从 window.location.hostname 动态读取（支持 hosts 代理域名如 5.joho.cn）

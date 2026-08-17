@@ -1,6 +1,6 @@
 // API 接口定义 - 后端统一返回 { data, meta } 格式
 import { getToken, removeToken, removeUser, setPoints } from '../utils/storage'
-import { BASE_API } from '../utils/env'
+import { BASE_API, SITE_DOMAIN } from '../utils/env'
 import {
   buildCourseQuery,
   stringifyQuery,
@@ -239,6 +239,24 @@ export async function request(url: string, options: any = {}) {
   }
 }
 
+// ==================== 媒体鉴权播放 ====================
+// 视频/音频/课件统一通过签名流式接口播放，未登录或未授权无法仅凭 URL 直接播放。
+// 签名约 30 分钟过期，播放器遇到 403/加载失败时需重新调用本函数换取新签名地址。
+export async function buildStreamSrc(pathOrUrl: string): Promise<string> {
+  if (!pathOrUrl) return ''
+  // 外部直链（非本站 /static、/uploads，如 OSS 公网链接）不走鉴权代理，原样返回
+  if (/^https?:\/\//i.test(pathOrUrl) && !/\/static\//.test(pathOrUrl) && !/\/uploads\//.test(pathOrUrl)) {
+    return pathOrUrl
+  }
+  const res = await request('/zhao-oss/v1/media/stream-token', {
+    method: 'POST',
+    data: { path: pathOrUrl },
+  })
+  const rel = res?.data?.url || res?.url || pathOrUrl
+  if (/^https?:\/\//i.test(rel)) return rel
+  return rel ? `${BASE_API}${rel}` : pathOrUrl
+}
+
 // ==================== 三方登录 API ====================
 
 export async function wxMiniProgramLogin(code: string, encryptedData?: string, iv?: string, inviteCode?: string, channelInviteCode?: string) {
@@ -327,6 +345,7 @@ export async function getLessonList(courseId: string) {
   const params = new URLSearchParams()
   params.append('filters[course][documentId][$eq]', courseId)
   params.append('sort', 'sequenceNumber:asc')
+  params.append('populate[quizzes]', 'true')
   return request(`/zhao-course/v1/course-lessons?${params.toString()}`)
 }
 
@@ -617,6 +636,29 @@ export async function validateInviteCode(code: string) {
 
 // ==================== 用户相关 API ====================
 
+/** 获取当前用户角色名列表（如 ['admin','instructor']），未登录返回 [] */
+export async function getMyRoles(): Promise<string[]> {
+  try {
+    const res = await request('/zhao-auth/v1/my/roles')
+    const roles = res?.roles || []
+    return Array.isArray(roles) ? roles.map((r: any) => r?.name).filter(Boolean) : []
+  } catch (e) {
+    console.warn('获取角色失败（按无特权处理）', e)
+    return []
+  }
+}
+
+/** 获取站点公开配置（含倍速特权角色名单 speedPrivilegedRoles） */
+export async function getSitePublicConfig(): Promise<any> {
+  try {
+    const res = await request(`/zhao-common/v1/public/config?domain=${encodeURIComponent(SITE_DOMAIN)}`)
+    return res?.data ?? res
+  } catch (e) {
+    console.warn('获取站点公开配置失败', e)
+    return null
+  }
+}
+
 export async function getUserInfo() {
   const res = await request('/users/me')
   return res?.data ?? res
@@ -674,6 +716,9 @@ export interface Course {
   originalPrice?: number
   discountPrice?: number
   isFeatured?: boolean
+  isTop?: boolean
+  isRecommended?: boolean
+  featureFlags?: Record<string, any> | null
   publishDate?: string
   enablePoints?: boolean
   points?: number
@@ -706,6 +751,8 @@ export interface Lesson {
   isRequired?: boolean
   isCompleted?: boolean
   isPointsClaimed?: boolean
+  // 关联测验（用于答题按钮/自动连播判定）
+  quizzes?: Array<{ documentId: string; title?: string }>
 }
 
 export interface QuizQuestion {
