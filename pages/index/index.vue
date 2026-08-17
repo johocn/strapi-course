@@ -123,7 +123,9 @@
     <course-filter-drawer
       v-model:visible="drawerVisible"
       v-model="filterState"
+      :price-type="priceType"
       :tags="tagList"
+      @update:price-type="handleDrawerPriceType"
       @apply="handleApplyFilter"
       @reset="handleResetFilter"
     />
@@ -292,6 +294,13 @@ function handleViewModeChange(mode: ViewMode) {
 
 function handleApplyFilter(state: CourseFilterState) {
   filterState.value = state
+  persistState()
+  debouncedLoadCourses()
+}
+
+/** 筛选弹层内选择精品/推荐时同步 priceType */
+function handleDrawerPriceType(value: PriceType) {
+  priceType.value = value
   persistState()
   debouncedLoadCourses()
 }
@@ -657,7 +666,7 @@ onShareTimeline(() => {
   top: 0;
   left: 0;
   right: 0;
-  height: 260rpx;
+  height: 340rpx;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
@@ -710,7 +719,9 @@ onShareTimeline(() => {
 }
 
 .header-right {
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  margin-left: 20rpx;
 }
 
 .login-btn {
@@ -732,6 +743,8 @@ onShareTimeline(() => {
   padding: 8rpx 20rpx;
   background: rgba(255, 255, 255, 0.15);
   border-radius: 40rpx;
+  max-width: 320rpx;
+  overflow: hidden;
 }
 
 .user-avatar {
@@ -742,6 +755,7 @@ onShareTimeline(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .user-avatar text {
@@ -753,6 +767,12 @@ onShareTimeline(() => {
 .user-name {
   font-size: 26rpx;
   color: #fff;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 200rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .header-title {
@@ -775,9 +795,10 @@ onShareTimeline(() => {
   align-items: center;
   margin-top: 30rpx;
   padding: 20rpx 25rpx;
-  background: rgba(255, 255, 255, 0.15);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.12));
   border-radius: 15rpx;
-  border: 1rpx solid rgba(255, 255, 255, 0.2);
+  border: 1rpx solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.12);
 }
 
 .points-left {

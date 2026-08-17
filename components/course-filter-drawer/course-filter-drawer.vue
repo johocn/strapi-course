@@ -11,6 +11,21 @@
 
       <!-- 内容区 -->
       <scroll-view scroll-y class="drawer-body">
+        <!-- 精品 / 推荐（快捷标记） -->
+        <view class="filter-section">
+          <text class="section-title">标记</text>
+          <view class="checkbox-group">
+            <view
+              v-for="opt in MARK_OPTIONS"
+              :key="opt.value"
+              :class="['checkbox-item', { checked: localPriceType === opt.value }]"
+              @click="setPriceType(opt.value)"
+            >
+              <text>{{ opt.label }}</text>
+            </view>
+          </view>
+        </view>
+
         <!-- 难度 -->
         <view class="filter-section">
           <text class="section-title">难度</text>
@@ -63,7 +78,8 @@
           </view>
         </view>
 
-        <!-- 标签 -->
+        <!-- 标签（暂时隐藏，待后续开放） -->
+        <!--
         <view class="filter-section">
           <text class="section-title">标签</text>
           <view v-if="tags.length === 0" class="empty-tags">
@@ -80,6 +96,7 @@
             </view>
           </view>
         </view>
+        -->
       </scroll-view>
 
       <!-- 底部操作 -->
@@ -101,31 +118,48 @@ import {
   DIFFICULTY_OPTIONS,
   LANGUAGE_OPTIONS,
   DEFAULT_FILTER_STATE,
-  type CourseFilterState
+  type CourseFilterState,
+  type PriceType
 } from '../../utils/course-query'
 import type { Tag } from '../../services/api'
 
 const props = defineProps<{
   visible: boolean
   modelValue: CourseFilterState
+  priceType?: PriceType
   tags: Tag[]
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
+  (e: 'update:priceType', value: PriceType): void
   (e: 'apply', value: CourseFilterState): void
   (e: 'reset'): void
 }>()
 
 // 本地副本（编辑中不立即触发外部更新，点确定才 apply）
 const localState = ref<CourseFilterState>({ ...DEFAULT_FILTER_STATE })
+const localPriceType = ref<PriceType>('all')
+
+/** 弹层内精品/推荐快捷选项（映射 isFeatured / isRecommended） */
+const MARK_OPTIONS = [
+  { value: 'all', label: '全部' },
+  { value: 'featured', label: '⭐精品' },
+  { value: 'recommended', label: '🔥推荐' }
+]
 
 // 弹层打开时同步外部值
 watch(() => props.visible, (v) => {
   if (v) {
     localState.value = JSON.parse(JSON.stringify(props.modelValue))
+    localPriceType.value = props.priceType || 'all'
   }
 })
+
+function setPriceType(value: PriceType) {
+  // 单选：再次点击已选项则回到「全部」
+  localPriceType.value = localPriceType.value === value && value !== 'all' ? 'all' : value
+}
 
 function toggleArray(field: 'difficulty' | 'language' | 'tags', value: string) {
   const arr = localState.value[field]
@@ -149,12 +183,15 @@ function updatePrice(index: 0 | 1, e: any) {
 }
 
 function handleApply() {
+  emit('update:priceType', localPriceType.value)
   emit('apply', JSON.parse(JSON.stringify(localState.value)))
   emit('update:visible', false)
 }
 
 function handleReset() {
   localState.value = JSON.parse(JSON.stringify(DEFAULT_FILTER_STATE))
+  localPriceType.value = 'all'
+  emit('update:priceType', 'all')
   emit('reset')
   emit('update:visible', false)
 }
