@@ -492,6 +492,116 @@ export async function getMyQuizRecords(courseDocumentId?: string) {
   return (res as any)?.data ?? res
 }
 
+// ==================== 错题集 API ====================
+
+export interface WrongQuizItem {
+  id?: number
+  documentId: string
+  wrongCount?: number
+  status?: 'active' | 'archived'
+  reviewLevel?: number
+  consecutiveCorrect?: number
+  dueAt?: string
+  lastWrongAt?: string
+  lastCorrectAt?: string
+  knowledgePointName?: string
+  quiz?: any
+  course?: any
+  lesson?: any
+}
+
+/**
+ * 我的错题列表（默认 active；archived 为已掌握历史）
+ */
+export async function getWrongQuizList(params: { status?: 'active' | 'archived'; page?: number; pageSize?: number } = {}) {
+  const query = new URLSearchParams({
+    status: params.status || 'active',
+    page: String(params.page || 1),
+    pageSize: String(params.pageSize || 50),
+  } as any).toString()
+  const res = await request(`/zhao-quiz/v1/my/wrong-quizzes?${query}`)
+  return res as any // { data: WrongQuizItem[], meta: { pagination: { total } } }
+}
+
+/**
+ * 待复习错题（错题重练队列）
+ */
+export async function getWrongQuizDue(limit = 30) {
+  const res = await request(`/zhao-quiz/v1/my/wrong-quizzes/due?limit=${limit}`)
+  return res as any
+}
+
+/**
+ * 拉取练习题（公开接口，按课程/课时过滤，返回含答案用于即时反馈）
+ */
+export async function getQuizQuestionList(params: { courseDocumentId?: string; lessonDocumentId?: string; pageSize?: number } = {}) {
+  const filters: string[] = ['filters[isPublished][$eq]=true']
+  if (params.courseDocumentId) filters.push(`filters[course][documentId][$eq]=${params.courseDocumentId}`)
+  if (params.lessonDocumentId) filters.push(`filters[lesson][documentId][$eq]=${params.lessonDocumentId}`)
+  const query = [...filters, `pagination[pageSize]=${params.pageSize || 100}`].join('&')
+  const res = await request(`/zhao-quiz/v1/quizzes?${query}`)
+  return res as any // { data: quiz[], meta }
+}
+
+// ==================== 考试 / 组卷 API ====================
+
+export interface QuizExam {
+  documentId: string
+  title: string
+  description?: string
+  timeLimit?: number   // 分钟，0 表示不限时
+  passScore?: number
+  totalPoints?: number
+  questionCount?: number
+  paperType?: 'fixed' | 'rule'
+}
+
+/**
+ * 考试列表（公开，游客可见）
+ */
+export async function getQuizExamList(params: { page?: number; pageSize?: number } = {}) {
+  const query = new URLSearchParams({
+    page: String(params.page || 1),
+    pageSize: String(params.pageSize || 50),
+  } as any).toString()
+  const res = await request(`/zhao-quiz/v1/quiz-exams?${query}`)
+  return res as any // { data: QuizExam[], meta }
+}
+
+/**
+ * 获取试卷（规则组卷动态抽题，答案已隐藏）
+ * @returns { documentId, questions: any[], shortages: string[] }
+ */
+export async function getQuizPaper(examDocumentId: string) {
+  const res = await request(`/zhao-quiz/v1/my/quiz-exams/${examDocumentId}/paper`)
+  return (res as any)?.data ?? res
+}
+
+export async function startQuizExam(data: { examDocumentId: string }) {
+  const res = await request('/zhao-quiz/v1/my/quiz-exam-attempts/start', { method: 'POST', data })
+  return (res as any)?.data ?? res
+}
+
+export async function submitQuizExam(attemptDocumentId: string, data: { answers: Array<{ quizDocumentId: string; answer: any }> }) {
+  const res = await request(`/zhao-quiz/v1/my/quiz-exam-attempts/${attemptDocumentId}/submit`, { method: 'POST', data })
+  return (res as any)?.data ?? res
+}
+
+/**
+ * 练习/错题重练提交单题答案（自动判题 + 错题回流）
+ * @returns record = { isCorrect?: boolean, scoringStatus, score }
+ */
+export async function submitQuizPracticeAnswer(data: {
+  quizDocumentId: string
+  answer: any
+  lessonDocumentId?: string
+  mode?: 'practice' | 'exam'
+  practiceType?: 'knowledge' | 'random' | 'simulate' | 'wrong'
+}) {
+  const res = await request('/zhao-quiz/v1/my/quiz-records/submit', { method: 'POST', data })
+  return (res as any)?.data ?? res
+}
+
 // ==================== 积分相关 API ====================
 
 export async function getPointBalance() {

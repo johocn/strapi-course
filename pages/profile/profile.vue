@@ -132,6 +132,18 @@
           <view class="menu-icon">🎓</view>
           <text class="menu-text">全部课程</text>
         </view>
+        <view class="menu-item" @click="goToPractice">
+          <view class="menu-icon">✏️</view>
+          <text class="menu-text">刷题练习</text>
+        </view>
+        <view class="menu-item" @click="goToExam">
+          <view class="menu-icon">📝</view>
+          <text class="menu-text">模拟考试</text>
+        </view>
+        <view class="menu-item" @click="goToWrongQuiz">
+          <view class="menu-icon">📌</view>
+          <text class="menu-text">错题集</text>
+        </view>
         <view class="menu-item" @click="goToExchange">
           <view class="menu-icon">🎁</view>
           <text class="menu-text">积分商城</text>
@@ -472,6 +484,18 @@ function goToRedeemRecord() {
 
 function goToSignIn() {
   uni.navigateTo({ url: '/pages/sign-in/sign-in' })
+}
+
+function goToPractice() {
+  uni.navigateTo({ url: '/pages/quiz/practice' })
+}
+
+function goToExam() {
+  uni.navigateTo({ url: '/pages/quiz/exam/index' })
+}
+
+function goToWrongQuiz() {
+  uni.navigateTo({ url: '/pages/wrong-quiz/index' })
 }
 
 function goToTasks() {
@@ -859,7 +883,7 @@ onUnmounted(() => {
 }
 
 .menu-item {
-  width: 25%;
+  width: 33.33%;
   padding: 30rpx 10rpx;
   display: flex;
   flex-direction: column;

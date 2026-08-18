@@ -66,6 +66,24 @@
 			}
 		},
 		{
+			"path": "pages/quiz/practice",
+			"style": {
+				"navigationBarTitleText": "刷题练习"
+			}
+		},
+		{
+			"path": "pages/quiz/exam/index",
+			"style": {
+				"navigationBarTitleText": "模拟考试"
+			}
+		},
+		{
+			"path": "pages/wrong-quiz/index",
+			"style": {
+				"navigationBarTitleText": "错题集"
+			}
+		},
+		{
 			"path": "pages/exchange/exchange",
 			"style": {
 				"navigationBarTitleText": "积分兑换"
