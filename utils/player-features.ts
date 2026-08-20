@@ -3,6 +3,21 @@
 
 export type SeekMode = 'locked' | 'played_only' | 'free'
 
+export interface CourseQuizFlags {
+  /** 本课/课程刷题入口 */
+  practice: boolean
+  /** 课堂测验（原「去答题」） */
+  lessonQuiz: boolean
+  /** 模拟考试入口 */
+  exam: boolean
+  /** 自由答题入口 */
+  freeAnswer: boolean
+  /** 随机抽题入口 */
+  random: boolean
+  /** 仅这些角色可见考试/试卷（独立于 learnRoles） */
+  examRoles: string[]
+}
+
 export interface CourseFeatureFlags {
   /** 课程是否配置了 featureFlags（null/非对象=未配置，用于默认值规则区分） */
   configured: boolean
@@ -13,6 +28,19 @@ export interface CourseFeatureFlags {
   pictureInPicture: boolean
   vipSpeedOverride: boolean
   seekMode: SeekMode
+  /** 允许学习/可见该课程的角色码白名单（空=不启用角色门控） */
+  learnRoles: string[]
+  /** 课程级倍速特权角色名单（空课程级未配置=回退站点级 speedPrivilegedRoles） */
+  vipRoles: string[]
+  quiz: CourseQuizFlags
+}
+
+/** 判定用户是否命中角色白名单：admin 恒放行；白名单空=放行；否则交集 */
+export function hasGrantedRole(userRoles: string[], whitelist: string[]): boolean {
+  if (!Array.isArray(whitelist) || whitelist.length === 0) return true
+  const roles = Array.isArray(userRoles) ? userRoles : []
+  if (roles.includes('admin')) return true
+  return roles.some((r) => whitelist.includes(r))
 }
 
 export const DEFAULT_SEEK_MODE: SeekMode = 'played_only'
@@ -31,6 +59,10 @@ export function parseCourseFeatureFlags(raw: unknown): CourseFeatureFlags {
   const isObject = !!raw && typeof raw === 'object' && !Array.isArray(raw)
   const ff = isObject ? (raw as Record<string, any>) : {}
   const configured = isObject
+  const quizRaw = isObject && ff.quiz && typeof ff.quiz === 'object' && !Array.isArray(ff.quiz)
+    ? (ff.quiz as Record<string, any>)
+    : {}
+  const rolesOf = (v: any) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [])
   return {
     configured,
     playbackSpeed: ff.playbackSpeed === true,
@@ -44,6 +76,16 @@ export function parseCourseFeatureFlags(raw: unknown): CourseFeatureFlags {
         ? (ff.seekMode as SeekMode)
         : DEFAULT_SEEK_MODE)
       : 'free',
+    learnRoles: rolesOf(ff.learnRoles),
+    vipRoles: rolesOf(ff.vipRoles),
+    quiz: {
+      practice: quizRaw.practice === true,
+      lessonQuiz: quizRaw.lessonQuiz === true,
+      exam: quizRaw.exam === true,
+      freeAnswer: quizRaw.freeAnswer === true,
+      random: quizRaw.random === true,
+      examRoles: rolesOf(quizRaw.examRoles),
+    },
   }
 }
 
@@ -57,7 +99,10 @@ export function isSpeedEnabled(
   if (!flags.vipSpeedOverride) return false
   const roles = Array.isArray(userRoles) ? userRoles : []
   if (roles.length === 0) return false
-  const privileged = Array.isArray(speedPrivilegedRoles) ? speedPrivilegedRoles : []
+  // 课程级 vipRoles 优先；未配置课程级时回退到站点级 speedPrivilegedRoles
+  const privileged = Array.isArray(flags.vipRoles) && flags.vipRoles.length > 0
+    ? flags.vipRoles
+    : (Array.isArray(speedPrivilegedRoles) ? speedPrivilegedRoles : [])
   return roles.some((r) => privileged.includes(r))
 }
 
