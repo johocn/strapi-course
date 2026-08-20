@@ -969,3 +969,21 @@ export async function myActivities() {
   const res = await request('/zhao-point/v1/my/activities')
   return res?.data ?? res
 }
+
+// ==================== 合伙人客户 API（zhao-sso） ====================
+const PARTNER = '/zhao-sso/v1/partner'
+
+export const partnerApi = {
+  /** 我的下线客户列表 @returns { data: [{ id, username, email, mobile, profile }] } */
+  myCustomers: () => request(`${PARTNER}/my-customers`),
+  /** 客户画像详情（实时聚合+分层）@param id sso-user id */
+  customerDetail: (id: number | string) => request(`${PARTNER}/customers/${id}`),
+  /** 一键触达 @param data { templateCode, params, link } */
+  touch: (id: number | string, data: any) => request(`${PARTNER}/customers/${id}/touch`, { method: 'POST', data }),
+  /** 我的跟进记录 @returns { data: [{ id, customer, content, status, nextFollowAt }] } */
+  listFollowUps: () => request(`${PARTNER}/follow-ups`),
+  /** 新增跟进 @param data { customer, content, status, nextFollowAt } */
+  createFollowUp: (data: any) => request(`${PARTNER}/follow-ups`, { method: 'POST', data }),
+  /** 更新跟进（如标记完成 status=done） */
+  updateFollowUp: (id: number | string, data: any) => request(`${PARTNER}/follow-ups/${id}`, { method: 'PUT', data }),
+}

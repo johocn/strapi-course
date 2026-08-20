@@ -150,6 +150,18 @@
 			"style": {
 				"navigationBarTitleText": "我的活动"
 			}
+		},
+		{
+			"path": "pages/partner/customers",
+			"style": {
+				"navigationBarTitleText": "我的客户"
+			}
+		},
+		{
+			"path": "pages/partner/customer-detail",
+			"style": {
+				"navigationBarTitleText": "客户画像"
+			}
 		}
 	],
 	"globalStyle": {

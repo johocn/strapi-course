@@ -156,6 +156,10 @@
           <view class="menu-icon">🎪</view>
           <text class="menu-text">线下活动</text>
         </view>
+        <view class="menu-item" @click="goToCustomers">
+          <view class="menu-icon">👥</view>
+          <text class="menu-text">我的客户</text>
+        </view>
       </view>
     </view>
 
@@ -488,6 +492,10 @@ function goToRedeemRecord() {
 
 function goToActivity() {
   uni.navigateTo({ url: '/pages/activity/list' })
+}
+
+function goToCustomers() {
+  uni.navigateTo({ url: '/pages/partner/customers' })
 }
 
 function goToSignIn() {
