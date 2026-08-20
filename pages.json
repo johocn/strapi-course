@@ -132,6 +132,24 @@
 				"navigationBarTitleText": "自提点详情",
 				"navigationStyle": "custom"
 			}
+		},
+		{
+			"path": "pages/activity/list",
+			"style": {
+				"navigationBarTitleText": "线下活动"
+			}
+		},
+		{
+			"path": "pages/activity/detail",
+			"style": {
+				"navigationBarTitleText": "活动详情"
+			}
+		},
+		{
+			"path": "pages/activity/my",
+			"style": {
+				"navigationBarTitleText": "我的活动"
+			}
 		}
 	],
 	"globalStyle": {

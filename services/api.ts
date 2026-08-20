@@ -37,6 +37,7 @@ const PUBLIC_ROUTES = [
   '/zhao-auth/v1/reset-password',   // 重置密码
   '/zhao-studio/v1/ads/',             // 广告展示（公开）
   '/zhao-studio/v1/posters/',         // 海报模板（公开）
+  '/zhao-point/v1/activities',        // 线下活动列表/详情（游客可看）
 ]
 
 function isPublicRoute(url: string): boolean {
@@ -534,10 +535,11 @@ export async function getWrongQuizDue(limit = 30) {
 /**
  * 拉取练习题（公开接口，按课程/课时过滤，返回含答案用于即时反馈）
  */
-export async function getQuizQuestionList(params: { courseDocumentId?: string; lessonDocumentId?: string; pageSize?: number } = {}) {
+export async function getQuizQuestionList(params: { courseDocumentId?: string; lessonDocumentId?: string; knowledgePointDocumentId?: string; pageSize?: number } = {}) {
   const filters: string[] = ['filters[isPublished][$eq]=true']
   if (params.courseDocumentId) filters.push(`filters[course][documentId][$eq]=${params.courseDocumentId}`)
   if (params.lessonDocumentId) filters.push(`filters[lesson][documentId][$eq]=${params.lessonDocumentId}`)
+  if (params.knowledgePointDocumentId) filters.push(`filters[tags][documentId][$eq]=${params.knowledgePointDocumentId}`)
   const query = [...filters, `pagination[pageSize]=${params.pageSize || 100}`].join('&')
   const res = await request(`/zhao-quiz/v1/quizzes?${query}`)
   return res as any // { data: quiz[], meta }
@@ -596,7 +598,7 @@ export async function submitQuizPracticeAnswer(data: {
   answer: any
   lessonDocumentId?: string
   mode?: 'practice' | 'exam'
-  practiceType?: 'knowledge' | 'random' | 'simulate' | 'wrong'
+  practiceType?: 'knowledge' | 'random' | 'simulate' | 'wrong' | 'free'
 }) {
   const res = await request('/zhao-quiz/v1/my/quiz-records/submit', { method: 'POST', data })
   return (res as any)?.data ?? res
@@ -846,6 +848,9 @@ export interface Course {
   // 答题控制字段
   allowRetakeQuiz?: boolean
   quizRetryCount?: 'no_retry' | 'retry_1' | 'retry_2' | 'retry_3' | 'retry_4'
+  // 关联测验（课程详情 populate）
+  quizzes?: Array<{ documentId: string; title?: string }>
+  exams?: Array<{ documentId: string; title?: string }>
 }
 
 export interface Lesson {
@@ -898,4 +903,69 @@ export interface RedemptionRecord {
   points: number
   status: 'pending' | 'shipped' | 'completed' | 'cancelled'
   createdAt: string
+}
+
+// ==================== 线下活动相关 API ====================
+
+/**
+ * 活动列表（公开，游客可见）
+ * @returns res.data 为活动文档数组
+ */
+export async function listActivities(params?: { status?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams(params as any).toString()
+  return request(`/zhao-point/v1/activities${query ? '?' + query : ''}`)
+}
+
+/**
+ * 活动详情（公开）
+ * @returns res.data 为活动对象
+ */
+export async function getActivityDetail(documentId: string) {
+  const res = await request(`/zhao-point/v1/activities/${documentId}`)
+  return res?.data ?? res
+}
+
+/**
+ * 报名活动（需登录）
+ * @returns { ok: true } 或 { ok: false, reason: 'already_signed_up' }
+ */
+export async function signupActivity(activityId: string) {
+  const res = await request('/zhao-point/v1/my/activity/signup', {
+    method: 'POST',
+    data: { activityId },
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 取消报名（需登录）
+ * @returns { ok: true }
+ */
+export async function cancelActivity(documentId: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/cancel`, {
+    method: 'POST',
+    data: {},
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 到场签到（需登录）
+ * @returns { ok: true, attendanceId, point } 或 { ok: false, reason: 'already_checked_in' }
+ */
+export async function checkinActivity(documentId: string, data: { method: string; lat?: number; lng?: number }) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/checkin`, {
+    method: 'POST',
+    data,
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 我的报名记录（需登录）
+ * @returns res.data 为报名记录数组，每条含 activity 对象、attendance 字段
+ */
+export async function myActivities() {
+  const res = await request('/zhao-point/v1/my/activities')
+  return res?.data ?? res
 }

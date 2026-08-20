@@ -152,6 +152,10 @@
           <view class="menu-icon">📦</view>
           <text class="menu-text">兑换记录</text>
         </view>
+        <view class="menu-item" @click="goToActivity">
+          <view class="menu-icon">🎪</view>
+          <text class="menu-text">线下活动</text>
+        </view>
       </view>
     </view>
 
@@ -480,6 +484,10 @@ function goToExchange() {
 
 function goToRedeemRecord() {
   uni.navigateTo({ url: '/pages/redeem-record/redeem-record' })
+}
+
+function goToActivity() {
+  uni.navigateTo({ url: '/pages/activity/list' })
 }
 
 function goToSignIn() {
