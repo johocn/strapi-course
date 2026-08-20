@@ -61,7 +61,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onShow } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import {
   getActivityDetail,
   signupActivity,
