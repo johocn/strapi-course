@@ -61,6 +61,54 @@
       </view>
     </view>
 
+    <!-- 猜你喜欢（登录后基于画像兴趣标签推荐） -->
+    <view v-if="isLoggedIn && recommendCourses.length" class="recommend-section">
+      <view class="recommend-header">
+        <text class="recommend-title">猜你喜欢</text>
+        <scroll-view v-if="recommendInterests.length" scroll-x class="interest-scroll" :show-scrollbar="false">
+          <view class="interest-row">
+            <text v-for="tag in recommendInterests" :key="tag" class="interest-chip"># {{ tag }}</text>
+          </view>
+        </scroll-view>
+      </view>
+
+      <!-- 推荐课程横滑 -->
+      <scroll-view scroll-x class="recommend-scroll" :show-scrollbar="false">
+        <view class="recommend-row">
+          <view
+            v-for="c in recommendCourses"
+            :key="c.documentId"
+            class="recommend-item"
+            @click="goToCourseDetail(c.documentId)"
+          >
+            <image v-if="c.cover?.url" :src="getImageUrl(c.cover.url)" mode="aspectFill" class="rec-cover" lazy-load />
+            <view v-else class="rec-cover rec-cover--ph">📚</view>
+            <view class="rec-badge">
+              <text v-if="c.courseType === 'free' || (!c.courseType && !c.isPaid)" class="rec-badge-free">免费</text>
+              <text v-else-if="c.courseType === 'points'" class="rec-badge-points">{{ c.pointsPrice || 0 }}积分</text>
+              <text v-else class="rec-badge-paid">付费</text>
+            </view>
+            <text class="rec-title">{{ c.title }}</text>
+            <text class="rec-meta">{{ c.category || '综合' }}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <!-- 推荐活动 -->
+      <view v-if="recommendActivities.length" class="rec-activity">
+        <text class="rec-activity-title">近期活动</text>
+        <view
+          v-for="a in recommendActivities"
+          :key="a.documentId"
+          class="rec-activity-item"
+          @click="goToActivity(a.documentId)"
+        >
+          <text class="rec-activity-name">{{ a.title }}</text>
+          <text class="rec-activity-meta">{{ a.type === '其他' ? '活动' : a.type }}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 分类标签 -->
     <view class="category-tabs">
       <scroll-view scroll-x class="tabs-scroll">
@@ -144,7 +192,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
-import { getCourseList, getPointBalance, getCourseCategories, getInviteStats, getTags, getMyCourseProgresses } from '../../services/api'
+import { getCourseList, getPointBalance, getCourseCategories, getInviteStats, getTags, getMyCourseProgresses, getRecommend } from '../../services/api'
 import { validateLogin, getAuthUser, checkLogin } from '../../utils/auth'
 import { getImageUrl } from '../../utils/env'
 import { getStoredAuthConfig } from '../../services/auth-config'
@@ -196,6 +244,11 @@ const filterState = ref<CourseFilterState>({ ...DEFAULT_FILTER_STATE })
 const drawerVisible = ref(false)
 const tagList = ref<Tag[]>([])
 const totalCourses = ref(0)
+
+// 猜你喜欢（个性化推荐）
+const recommendCourses = ref<any[]>([])
+const recommendActivities = ref<any[]>([])
+const recommendInterests = ref<string[]>([])
 
 // 顺序锁定状态
 const courseProgressMap = ref<Record<string, boolean>>({})  // documentId → isCompleted
@@ -383,6 +436,25 @@ async function loadPointBalance() {
   } catch (e) {
     console.error('获取积分失败', e)
   }
+}
+
+// 加载猜你喜欢（个性化推荐，基于画像兴趣标签）
+async function loadRecommend() {
+  if (!isLoggedIn.value) return
+  try {
+    const res: any = await getRecommend(5)
+    const data = res?.data ?? res
+    recommendCourses.value = Array.isArray(data?.courses) ? data.courses : []
+    recommendActivities.value = Array.isArray(data?.activities) ? data.activities : []
+    recommendInterests.value = Array.isArray(data?.interests) ? data.interests.slice(0, 6) : []
+  } catch (e) {
+    console.error('加载猜你喜欢失败', e)
+    recommendCourses.value = []
+  }
+}
+
+function goToActivity(documentId: string) {
+  uni.navigateTo({ url: `/pages/activity/detail?id=${documentId}` })
 }
 
 function goToProfile() {
@@ -619,6 +691,7 @@ function refreshData() {
   debouncedLoadCourses()
   loadPointBalance()
   loadInviteCode()
+  loadRecommend()
   siteConfig.value = getStoredAuthConfig()
 }
 
@@ -917,5 +990,164 @@ onShareTimeline(() => {
   text-align: center;
   padding: 40rpx;
   color: #999;
+}
+
+// ===== 猜你喜欢 =====
+.recommend-section {
+  margin: 0 30rpx 24rpx;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #ffffff 0%, #f3f0ff 100%);
+  border-radius: 20rpx;
+  box-shadow: 0 6rpx 20rpx rgba(102, 126, 234, 0.12);
+}
+
+.recommend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.recommend-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #4a3f78;
+  flex-shrink: 0;
+}
+
+.interest-scroll {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.interest-row {
+  display: inline-flex;
+  gap: 10rpx;
+}
+
+.interest-chip {
+  padding: 6rpx 18rpx;
+  background: #eef0ff;
+  border-radius: 20rpx;
+  font-size: 22rpx;
+  color: #667eea;
+  white-space: nowrap;
+}
+
+.recommend-scroll {
+  white-space: nowrap;
+}
+
+.recommend-row {
+  display: inline-flex;
+  gap: 20rpx;
+}
+
+.recommend-item {
+  position: relative;
+  width: 220rpx;
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 16rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.rec-cover {
+  width: 220rpx;
+  height: 140rpx;
+  display: block;
+}
+
+.rec-cover--ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60rpx;
+  background: linear-gradient(135deg, #eef0ff 0%, #e8e0ff 100%);
+}
+
+.rec-badge {
+  position: absolute;
+  top: 10rpx;
+  left: 10rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 20rpx;
+  font-size: 20rpx;
+  color: #fff;
+}
+
+.rec-badge-free {
+  background: rgba(76, 175, 80, 0.9);
+}
+
+.rec-badge-points {
+  background: rgba(255, 152, 0, 0.9);
+}
+
+.rec-badge-paid {
+  background: rgba(102, 126, 234, 0.9);
+}
+
+.rec-title {
+  display: block;
+  padding: 14rpx 16rpx 4rpx;
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rec-meta {
+  display: block;
+  padding: 0 16rpx 14rpx;
+  font-size: 22rpx;
+  color: #999;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rec-activity {
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx dashed #ddd6ff;
+}
+
+.rec-activity-title {
+  font-size: 24rpx;
+  color: #9b8fd6;
+  font-weight: 600;
+}
+
+.rec-activity-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 16rpx 8rpx 0;
+}
+
+.rec-activity-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  color: #444;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rec-activity-meta {
+  flex-shrink: 0;
+  padding: 4rpx 16rpx;
+  background: #f4f1ff;
+  border-radius: 20rpx;
+  font-size: 22rpx;
+  color: #8b7fd6;
 }
 </style>

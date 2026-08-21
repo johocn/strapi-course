@@ -970,6 +970,17 @@ export async function myActivities() {
   return res?.data ?? res
 }
 
+// ==================== 个性化推荐 API（zhao-sso） ====================
+
+/**
+ * C 端「猜你喜欢」：基于画像兴趣标签推荐课程/文章/活动
+ * @returns { data: { interests, courses, articles, activities } }
+ */
+export async function getRecommend(limit = 5) {
+  const res = await request(`/zhao-sso/v1/recommend?limit=${limit}`)
+  return res?.data ?? res
+}
+
 // ==================== 合伙人客户 API（zhao-sso） ====================
 const PARTNER = '/zhao-sso/v1/partner'
 
