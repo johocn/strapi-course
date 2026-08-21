@@ -927,7 +927,7 @@ export async function getActivityDetail(documentId: string) {
 
 /**
  * 报名活动（需登录）
- * @returns { ok: true } 或 { ok: false, reason: 'already_signed_up' }
+ * @returns { ok: true } 报名成功；{ ok: true, waitlisted: true, position } 候补；{ ok: false, reason: 'already_signed_up' } 已报名/已在候补
  */
 export async function signupActivity(activityId: string) {
   const res = await request('/zhao-point/v1/my/activity/signup', {

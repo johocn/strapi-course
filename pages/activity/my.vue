@@ -47,6 +47,7 @@ function formatTime(dateStr: string): string {
 }
 
 function signStatusText(item: any): string {
+  if (item.status === 'waiting') return '候补中'
   const att = item.attendance
   if (att?.checkedIn) return '已签到'
   return '已报名'

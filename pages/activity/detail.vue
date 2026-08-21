@@ -39,10 +39,15 @@
       </view>
 
       <!-- 操作区 -->
-      <view v-if="!signedUp && activity.status === 'signup_open'" class="action-bar">
+      <view v-if="!signedUp && !waitlisted && activity.status === 'signup_open'" class="action-bar">
         <view class="action-btn primary" @click="onSignup">
-          <text>立即报名</text>
+          <text>{{ isFull ? '立即候补' : '立即报名' }}</text>
         </view>
+      </view>
+
+      <view v-else-if="waitlisted" class="action-bar">
+        <view class="action-btn waiting"><text>候补中 #{{ waitlistPosition }}</text></view>
+        <view class="action-btn normal" @click="onCancel"><text>取消候补</text></view>
       </view>
 
       <view v-if="signedUp" class="action-bar">
@@ -78,6 +83,9 @@ let id = ''
 const activity = ref<any>(null)
 const loading = ref(false)
 const signedUp = ref(false)
+const waitlisted = ref(false)
+const waitlistPosition = ref(0)
+const isFull = computed(() => (activity.value?.usedCapacity ?? 0) >= (activity.value?.capacity ?? 0))
 const qrcodeUrl = ref('')
 
 const canWorkerScan = computed(() => {
@@ -188,7 +196,15 @@ async function onSignup() {
   try {
     const result = await signupActivity(id)
     if ((result as any)?.ok) {
+      if ((result as any)?.waitlisted) {
+        waitlisted.value = true
+        waitlistPosition.value = (result as any)?.position || 0
+        uni.hideLoading()
+        uni.showToast({ title: `已加入候补 #${waitlistPosition.value}`, icon: 'none' })
+        return
+      }
       signedUp.value = true
+      waitlisted.value = false
       uni.hideLoading()
       uni.showToast({ title: '报名成功', icon: 'success' })
       nextTick(() => generateQrcode())
@@ -218,6 +234,8 @@ async function onCancel() {
           const result = await cancelActivity(id)
           if ((result as any)?.ok) {
             signedUp.value = false
+            waitlisted.value = false
+            waitlistPosition.value = 0
             qrcodeUrl.value = ''
             uni.showToast({ title: '已取消报名', icon: 'success' })
           } else {
@@ -293,7 +311,9 @@ async function restoreSignupState() {
     const list = (await myActivities()) as any
     const arr = Array.isArray(list) ? list : []
     const found = arr.find((r: any) => r?.activity?.documentId === id || r?.activity?.id === id)
-    signedUp.value = !!found
+    const st = found?.status
+    waitlisted.value = st === 'waiting'
+    signedUp.value = st === 'active'
     if (signedUp.value) nextTick(() => generateQrcode())
   } catch (e) {
     // 无需登录则跳过，登录跳转交给 request 内部逻辑
@@ -482,6 +502,8 @@ onShow(() => {
     color: #667eea;
     border: 2rpx solid #667eea;
   }
+  &.waiting { background: #faad14; color: #fff; }
+  &.normal { background: #fff; color: #666; border: 1rpx solid #ddd; }
 }
 
 .loading-state {
