@@ -27,6 +27,10 @@
           <text class="info-label">名额</text>
           <text class="info-value">{{ usedCapacity }}/{{ activity.capacity }} 已报名</text>
         </view>
+        <view v-if="activity.pointsCost > 0" class="info-row">
+          <text class="info-label">费用</text>
+          <text class="info-value">{{ activity.pointsCost }} 积分（{{ activity.feeCollectAt === 'checkin' ? '签到收取' : '报名扣费' }}）</text>
+        </view>
 
         <view v-if="activity.description" class="desc">
           <text class="desc-title">活动介绍</text>
@@ -52,7 +56,7 @@
       <!-- 操作区 -->
       <view v-if="!signedUp && !waitlisted && activity.status === 'signup_open'" class="action-bar">
         <view class="action-btn primary" @click="onSignup">
-          <text>{{ isFull ? '立即候补' : '立即报名' }}</text>
+          <text>{{ isFull ? '立即候补' : (activity.pointsCost > 0 ? `报名 · ${activity.pointsCost} 积分` : '立即报名') }}</text>
         </view>
       </view>
 
@@ -258,6 +262,8 @@ async function onSignup() {
         signedUp.value = true
         uni.showToast({ title: '您已报名过', icon: 'none' })
         nextTick(() => generateQrcode())
+      } else if ((result as any)?.reason === 'insufficient_points') {
+        uni.showToast({ title: '积分不足，无法报名', icon: 'none' })
       } else {
         uni.showToast({ title: '报名失败', icon: 'none' })
       }
@@ -314,6 +320,8 @@ function handleCheckinResult(result: any) {
   } else {
     if (result?.reason === 'already_checked_in') {
       uni.showToast({ title: '您已签到过了', icon: 'none' })
+    } else if (result?.reason === 'insufficient_points') {
+      uni.showToast({ title: '积分不足，无法签到', icon: 'none' })
     } else {
       uni.showToast({ title: '签到失败', icon: 'none' })
     }
