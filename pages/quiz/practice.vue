@@ -126,7 +126,7 @@ import { getStoredAuthConfig } from '../../services/auth-config'
 
 const siteConfig = getStoredAuthConfig()
 
-type Mode = 'knowledge' | 'random' | 'wrong'
+type Mode = 'knowledge' | 'random' | 'free' | 'wrong'
 
 interface WithWrongInfo {
   documentId: string
@@ -144,6 +144,8 @@ interface WithWrongInfo {
 
 const mode = ref<Mode>('random')
 const courseDocumentId = ref('')
+const lessonDocumentId = ref('')
+const kpDocumentId = ref('')
 const questions = ref<WithWrongInfo[]>([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -234,7 +236,11 @@ async function loadQuestions() {
         })
         .filter(Boolean)
     } else {
-      const res: any = await getQuizQuestionList({ courseDocumentId: courseDocumentId.value || undefined })
+      const res: any = lessonDocumentId.value
+        ? await getQuizQuestionList({ lessonDocumentId: lessonDocumentId.value })
+        : kpDocumentId.value
+          ? await getQuizQuestionList({ courseDocumentId: courseDocumentId.value || undefined, knowledgePointDocumentId: kpDocumentId.value })
+          : await getQuizQuestionList({ courseDocumentId: courseDocumentId.value || undefined })
       const raw: any[] = res?.data ?? []
       list = raw
         .filter((q) => q.isPublished !== false)
@@ -318,14 +324,22 @@ function goBack() {
 
 onLoad((query) => {
   const m = (query as any)?.mode
-  if (m === 'knowledge' || m === 'wrong') mode.value = m
+  if (m === 'knowledge' || m === 'free' || m === 'wrong') mode.value = m
   else mode.value = 'random'
   courseDocumentId.value = (query as any)?.course ?? ''
+  lessonDocumentId.value = (query as any)?.lesson ?? ''
+  kpDocumentId.value = (query as any)?.kp ?? ''
 })
 
 onMounted(async () => {
   // #ifndef H5
-  uni.setNavigationBarTitle({ title: mode.value === 'wrong' ? '错题重练' : (mode.value === 'knowledge' ? '知识点刷题' : '随机刷题') })
+  const titleMap: Record<string, string> = {
+    wrong: '错题重练',
+    knowledge: '知识点刷题',
+    free: '自由答题',
+    random: '随机刷题',
+  }
+  uni.setNavigationBarTitle({ title: titleMap[mode.value] ?? '随机刷题' })
   // #endif
   await loadQuestions()
 })

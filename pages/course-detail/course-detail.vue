@@ -60,6 +60,13 @@
         </view>
       </view>
 
+      <!-- 答题功能入口（开关 && 有内容双重门控） -->
+      <view v-if="showEntryRow" class="quiz-entries">
+        <view v-if="showPractice" class="quiz-entry" @click="goQuiz('mode=random&course=' + course.documentId)">课程刷题</view>
+        <view v-if="showFreeAnswer" class="quiz-entry" @click="goQuiz('mode=free&course=' + course.documentId)">自由答题</view>
+        <view v-if="showExam" class="quiz-entry" @click="goExam(course.documentId)">模拟考试</view>
+      </view>
+
       <view class="bottom-bar">
         <view class="course-stats">
           <text class="stat-item">共 {{ lessons.length }}课时</text>
@@ -170,10 +177,13 @@ import type { Course, Lesson } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
 import { checkItemLock } from '../../utils/sequence-lock'
+import { parseCourseFeatureFlags, hasGrantedRole } from '../../utils/player-features'
+import { getMyRoles } from '../../services/api'
 import SharePoster from '../../components/share-poster/share-poster.vue'
 import SequenceLockDialog from '../../components/sequence-lock-dialog/sequence-lock-dialog.vue'
 
 const course = ref<Course | null>(null)
+const myRoles = ref<string[]>([])
 const error = ref(false)
 const showSharePoster = ref(false)
 const siteConfig = getStoredAuthConfig()
@@ -181,6 +191,26 @@ const lessons = ref<(Lesson & { completed?: boolean; progressPercent?: number; p
 const currentLessonIndex = ref(0)
 const earnedCourseIds = ref<Set<string>>(new Set())
 const earnedLessonIds = ref<Set<string>>(new Set())
+
+// 答题功能入口（课程门控 + 角色门控 + 内容门控）
+const quizFlags = computed(() => parseCourseFeatureFlags((course.value as any)?.featureFlags).quiz)
+const courseQuizCount = computed(
+  () => (course.value?.quizzes?.length ?? 0)
+    + lessons.value.reduce((n, l) => n + ((l as any)?.quizzes?.length ?? 0), 0)
+)
+const showPractice = computed(() => !!(quizFlags.value.practice && courseQuizCount.value > 0))
+const showFreeAnswer = computed(() => !!(quizFlags.value.freeAnswer && courseQuizCount.value > 0))
+const showExam = computed(() =>
+  !!(quizFlags.value.exam && (course.value?.exams?.length ?? 0) > 0 && hasGrantedRole(myRoles.value, quizFlags.value.examRoles))
+)
+const showEntryRow = computed(() => showPractice.value || showFreeAnswer.value || showExam.value)
+
+function goQuiz(query: string) {
+  uni.navigateTo({ url: `/pages/quiz/practice?${query}` })
+}
+function goExam(courseDocumentId: string) {
+  uni.navigateTo({ url: `/pages/quiz/exam/index?course=${courseDocumentId}` })
+}
 
 // 顺序锁定状态
 const lockDialogVisible = ref(false)
@@ -534,6 +564,8 @@ onMounted(() => {
   // #ifndef H5
   uni.setNavigationBarTitle({ title: siteConfig?.siteName ?? '课程详情' })
   // #endif
+  // 静默读取用户角色（用于考试/刷题等角色门控），未登录忽略
+  getMyRoles().then((r) => { myRoles.value = Array.isArray(r) ? r : [] }).catch(() => { myRoles.value = [] })
   loadData()
 })
 
@@ -809,6 +841,21 @@ onShow(() => {
   }
 }
 
+.quiz-entries {
+  margin: 20rpx 30rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+.quiz-entry {
+  min-width: 180rpx;
+  text-align: center;
+  padding: 18rpx 30rpx;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  color: #667eea;
+  background: #e8eaf6;
+}
 .bottom-bar {
   position: fixed;
   bottom: 0;

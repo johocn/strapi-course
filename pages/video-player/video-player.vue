@@ -38,13 +38,14 @@
         <text class="lock-unlock-btn" @click.stop="toggleLock">🔓</text>
       </view>
 
-      <!-- 常驻答题按钮（课时有关联测验时显示） -->
-      <view
-        v-if="hasQuiz && !isLocked && mediaUrl"
-        class="answer-float-btn"
-        @click.stop="startQuiz"
-      >
-        <text>📝 答题</text>
+      <!-- 常驻答题按钮组：课堂测验（quiz.lessonQuiz 开关） + 本课自由答题（quiz.freeAnswer 开关） -->
+      <view v-if="(showLessonQuiz || showFreeAnswer) && !isLocked && mediaUrl" class="quiz-float-group">
+        <view v-if="showLessonQuiz" class="answer-float-btn" @click.stop="startQuiz">
+          <text>📝 答题</text>
+        </view>
+        <view v-if="showFreeAnswer" class="answer-float-btn" @click.stop="openFreePractice">
+          <text>✍ 自由答题</text>
+        </view>
       </view>
 
       <!-- 自定义控制条 -->
@@ -362,7 +363,7 @@ let progressSaveTimer: number | null = null
 let hasMarkedComplete = false
 
 // ===== 播放控制（featureFlags 驱动）=====
-const ff = ref<CourseFeatureFlags>({ configured: false, playbackSpeed: false, allowLandscape: false, screenLock: false, autoNext: false, pictureInPicture: false, vipSpeedOverride: false, seekMode: 'free' })
+const ff = ref<CourseFeatureFlags>(parseCourseFeatureFlags(null))
 const userRoles = ref<string[]>([])
 const speedPrivilegedRoles = ref<string[]>(['admin'])
 const showControls = ref(true)
@@ -384,6 +385,10 @@ const isH5 = false
 // #endif
 
 const hasQuiz = computed(() => (currentLesson.value?.quizzes?.length ?? 0) > 0)
+// 常驻答题按钮门控：quiz.lessonQuiz 开关 && 当前课时含测验题
+const showLessonQuiz = computed(() => !!(ff.value.quiz?.lessonQuiz) && hasQuiz.value)
+// 本课自由答题门控：quiz.freeAnswer 开关 && 当前课时含测验题
+const showFreeAnswer = computed(() => !!(ff.value.quiz?.freeAnswer) && hasQuiz.value)
 const showSpeedBtn = computed(() => isSpeedEnabled(ff.value, userRoles.value, speedPrivilegedRoles.value))
 const showLandscapeBtn = computed(() => ff.value.allowLandscape)
 const showLockBtn = computed(() => ff.value.screenLock)
@@ -1123,6 +1128,11 @@ function handleVisibilityChange() {
   }
 }
 
+function openFreePractice() {
+  const lessonId = currentLesson.value?.documentId
+  uni.navigateTo({ url: `/pages/quiz/practice?mode=free${lessonId ? '&lesson=' + lessonId : ''}` })
+}
+
 async function startQuiz() {
   if (!currentLesson.value?.completed) {
     uni.showToast({ title: '请先完成学习', icon: 'none' })
@@ -1572,6 +1582,22 @@ onUnmounted(() => {
 }
 
 /* 常驻答题按钮 */
+.quiz-float-group {
+  position: absolute;
+  top: 20rpx;
+  right: 20rpx;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14rpx;
+}
+.quiz-float-group .answer-float-btn {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
 .answer-float-btn {
   position: absolute;
   top: 20rpx;
