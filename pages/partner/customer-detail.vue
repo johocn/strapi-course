@@ -29,6 +29,14 @@
       </view>
     </view>
 
+    <!-- 兴趣标签 -->
+    <view v-if="profile && interests.length" class="card">
+      <view class="card-title">兴趣标签</view>
+      <view class="interest-wrap">
+        <text v-for="(t, i) in interests" :key="i" class="interest-tag">{{ t }}</text>
+      </view>
+    </view>
+
     <!-- 触达操作 -->
     <view class="card">
       <view class="card-title">客户触达</view>
@@ -94,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { partnerApi } from '../../services/api'
 import { getToken } from '../../utils/storage'
@@ -124,6 +132,13 @@ function segmentColor(segment?: string): string {
   const map: Record<string, string> = { S: '#e74c3c', A: '#e67e22', B: '#3498db', C: '#95a5a6' }
   return map[segment || 'C'] || '#95a5a6'
 }
+
+const interests = computed<string[]>(() => {
+  const arr = profile.value?.interests
+  if (Array.isArray(arr)) return arr
+  if (typeof arr === 'string') { try { return JSON.parse(arr) } catch { return [] } }
+  return []
+})
 
 function clamp(n: any): number {
   const v = Number(n) || 0
@@ -290,6 +305,20 @@ onShow(() => {
   color: #666;
   line-height: 1.5;
   margin-bottom: 24rpx;
+}
+
+.interest-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.interest-tag {
+  font-size: 24rpx;
+  color: #667eea;
+  background: #eef0ff;
+  padding: 8rpx 20rpx;
+  border-radius: 28rpx;
 }
 
 .dimension-list {
