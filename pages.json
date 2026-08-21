@@ -146,6 +146,12 @@
 			}
 		},
 		{
+			"path": "pages/activity/series",
+			"style": {
+				"navigationBarTitleText": "活动系列"
+			}
+		},
+		{
 			"path": "pages/activity/my",
 			"style": {
 				"navigationBarTitleText": "我的活动"

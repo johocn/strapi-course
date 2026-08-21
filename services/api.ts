@@ -38,6 +38,7 @@ const PUBLIC_ROUTES = [
   '/zhao-studio/v1/ads/',             // 广告展示（公开）
   '/zhao-studio/v1/posters/',         // 海报模板（公开）
   '/zhao-point/v1/activities',        // 线下活动列表/详情（游客可看）
+  '/zhao-point/v1/series',            // 活动系列列表/详情（游客可看）
 ]
 
 function isPublicRoute(url: string): boolean {
@@ -967,6 +968,25 @@ export async function checkinActivity(documentId: string, data: { method: string
  */
 export async function myActivities() {
   const res = await request('/zhao-point/v1/my/activities')
+  return res?.data ?? res
+}
+
+// ==================== 活动系列相关 API ====================
+
+/**
+ * 活动系列列表（公开，无需登录）
+ * @returns res.data 为系列文档数组
+ */
+export async function listSeries() {
+  return request('/zhao-point/v1/series')
+}
+
+/**
+ * 活动系列详情（公开），data 含已发布场次列表 activities
+ * @returns res.data 为系列对象（含 title/description/cover/activities 等）
+ */
+export async function getSeries(documentId: string) {
+  const res = await request(`/zhao-point/v1/series/${documentId}`)
   return res?.data ?? res
 }
 

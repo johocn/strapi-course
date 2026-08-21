@@ -3,7 +3,13 @@
     <view v-if="activity" class="detail-wrap">
       <view class="card">
         <view class="card-head">
-          <text class="title">{{ activity.title }}</text>
+          <view class="head-main">
+            <view v-if="seriesInfo" class="series-chip" @click="goSeries">
+              <text class="series-chip-text">系列 · {{ seriesInfo.title }}</text>
+              <text class="series-chip-arrow">›</text>
+            </view>
+            <text class="title">{{ activity.title }}</text>
+          </view>
           <view v-if="activity.status" :class="['status-tag', `status-${activity.status}`]">
             <text>{{ statusText(activity.status) }}</text>
           </view>
@@ -130,6 +136,18 @@ const canCancel = computed(() => {
 })
 
 const usedCapacity = computed(() => activity.value?.usedCapacity ?? 0)
+
+/** 所属活动系列（后端 populate 填充 belongsToSeries） */
+const seriesInfo = computed(() => {
+  const s = activity.value?.belongsToSeries
+  return s?.documentId && s?.title ? s : null
+})
+
+function goSeries() {
+  const s = seriesInfo.value
+  if (!s) return
+  uni.navigateTo({ url: `/pages/activity/series?id=${s.documentId}` })
+}
 
 function statusText(status: string): string {
   const map: Record<string, string> = {
@@ -379,6 +397,38 @@ onShow(() => {
   justify-content: space-between;
   gap: 20rpx;
   margin-bottom: 20rpx;
+}
+
+.head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.series-chip {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  background: #f6f4ff;
+  border-radius: 20rpx;
+  padding: 6rpx 18rpx;
+  margin-bottom: 12rpx;
+}
+
+.series-chip-text {
+  font-size: 22rpx;
+  color: #667eea;
+  max-width: 420rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.series-chip-arrow {
+  font-size: 24rpx;
+  color: #764ba2;
 }
 
 .title {
