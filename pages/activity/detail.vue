@@ -76,6 +76,12 @@
         <view v-if="canCancel" class="action-btn ghost" @click="onCancel">
           <text>取消报名</text>
         </view>
+        <view v-if="activity.status === 'ended' && !canSelf" class="action-btn primary" @click="openReview">
+          <text>{{ reviewed ? '已评价' : '去评价' }}</text>
+        </view>
+        <view v-if="activity.status === 'ended' && canSelf" class="action-btn ghost" @click="openReview">
+          <text>{{ reviewed ? '已评价' : '去评价' }}</text>
+        </view>
       </view>
     </view>
 
@@ -100,6 +106,50 @@
         }
       }"
     />
+
+    <!-- 评价弹层 -->
+    <view class="review-mask" v-if="showReview" @click="showReview = false">
+      <view class="review-panel" @click.stop>
+        <text class="review-title">评价本次活动</text>
+
+        <text class="review-field-label">评分</text>
+        <view class="star-row">
+          <text
+            v-for="n in 5"
+            :key="n"
+            class="star"
+            :class="{ active: n <= reviewRating }"
+            @click="reviewRating = n"
+          >★</text>
+          <text class="star-value">{{ reviewRating ? reviewRating + ' 分' : '请选择' }}</text>
+        </view>
+
+        <text class="review-field-label">NPS 推荐度（0-10）</text>
+        <view class="nps-row">
+          <text
+            v-for="n in 11"
+            :key="n"
+            class="nps-num"
+            :class="{ active: reviewNps === n - 1 }"
+            @click="reviewNps = n - 1"
+          >{{ n - 1 }}</text>
+        </view>
+
+        <text class="review-field-label">评价内容</text>
+        <textarea
+          class="review-textarea"
+          v-model="reviewText"
+          placeholder="说说本次活动的体验..."
+          placeholder-class="textarea-placeholder"
+          :maxlength="500"
+        />
+
+        <view class="review-actions">
+          <view class="review-btn cancel" @click="showReview = false"><text>取消</text></view>
+          <view class="review-btn submit" @click="submitReview"><text>确认</text></view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -112,6 +162,7 @@ import {
   cancelActivity,
   checkinActivity,
   myActivities,
+  submitActivityReview,
   getUserInfo,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
@@ -134,6 +185,11 @@ const waitlistPosition = ref(0)
 const isFull = computed(() => (activity.value?.usedCapacity ?? 0) >= (activity.value?.capacity ?? 0))
 const qrcodeUrl = ref('')
 const showSharePoster = ref(false)
+const showReview = ref(false)
+const reviewRating = ref(0)
+const reviewNps = ref<number | null>(null)
+const reviewText = ref('')
+const reviewed = ref(false)
 
 const canWorkerScan = computed(() => {
   const m = activity.value?.checkinMode
@@ -397,9 +453,48 @@ async function restoreSignupState() {
     const st = found?.status
     waitlisted.value = st === 'waiting'
     signedUp.value = st === 'active'
+    if (found?.reviewedAt) reviewed.value = true
     if (signedUp.value) nextTick(() => generateQrcode())
   } catch (e) {
     // 无需登录则跳过，登录跳转交给 request 内部逻辑
+  }
+}
+
+/** 打开评价弹层（已提交则提示） */
+function openReview() {
+  if (reviewed.value) {
+    uni.showToast({ title: '已评价过', icon: 'none' })
+    return
+  }
+  showReview.value = true
+}
+
+/** 提交评价 */
+async function submitReview() {
+  if (!reviewRating.value || reviewRating.value < 1) {
+    uni.showToast({ title: '请先选择评分（1-5星）', icon: 'none' })
+    return
+  }
+  try {
+    const result = await submitActivityReview(id, {
+      rating: reviewRating.value,
+      nps: reviewNps.value ?? undefined,
+      review: reviewText.value || undefined,
+    })
+    if ((result as any)?.ok) {
+      reviewed.value = true
+      showReview.value = false
+      uni.showToast({ title: '评价成功', icon: 'success' })
+    } else {
+      uni.showToast({ title: '评价失败', icon: 'none' })
+    }
+  } catch (e: any) {
+    const msg = e?.error?.message || e?.message || ''
+    if (msg.includes('尚未报名')) {
+      uni.showToast({ title: '尚未报名，无法评价', icon: 'none' })
+    } else {
+      uni.showToast({ title: '评价失败', icon: 'none' })
+    }
   }
 }
 
@@ -637,5 +732,110 @@ onShow(() => {
   text-align: center;
   font-size: 30rpx;
   font-weight: 500;
+}
+
+.review-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.review-panel {
+  width: 640rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 40rpx 40rpx 30rpx;
+  box-sizing: border-box;
+}
+.review-title {
+  display: block;
+  text-align: center;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 30rpx;
+}
+.review-field-label {
+  display: block;
+  font-size: 26rpx;
+  color: #666;
+  margin-bottom: 16rpx;
+}
+.star-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 30rpx;
+}
+.star {
+  font-size: 52rpx;
+  color: #ddd;
+}
+.star.active {
+  color: #fa8c16;
+}
+.star-value {
+  font-size: 24rpx;
+  color: #999;
+  margin-left: 8rpx;
+}
+.nps-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-bottom: 30rpx;
+}
+.nps-num {
+  width: 48rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  text-align: center;
+  border-radius: 8rpx;
+  background: #f5f5f5;
+  color: #666;
+  font-size: 24rpx;
+}
+.nps-num.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+.review-textarea {
+  width: 100%;
+  height: 160rpx;
+  background: #f5f5f5;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+  font-size: 26rpx;
+  margin-bottom: 30rpx;
+}
+.textarea-placeholder {
+  color: #bbb;
+}
+.review-actions {
+  display: flex;
+  gap: 20rpx;
+}
+.review-btn {
+  flex: 1;
+  text-align: center;
+  padding: 22rpx 0;
+  border-radius: 44rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+}
+.review-btn.cancel {
+  background: #f5f5f5;
+  color: #666;
+}
+.review-btn.submit {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
 }
 </style>

@@ -980,6 +980,16 @@ export async function myActivities() {
   return res?.data ?? res
 }
 
+/**
+ * 提交活动评价（仅已报名且 active 可评；rating 1-5 / nps 0-10 可空；返回 {ok:true}）
+ */
+export function submitActivityReview(activityDocumentId: string, data: { rating?: number; nps?: number; review?: string }) {
+  return request(`/zhao-point/v1/activities/${activityDocumentId}/review`, {
+    method: 'POST',
+    data,
+  })
+}
+
 // ==================== 活动系列相关 API ====================
 
 /**
