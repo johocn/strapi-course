@@ -170,6 +170,37 @@
         </view>
       </view>
     </view>
+
+    <!-- 我的续学推荐 -->
+    <view v-if="suggestions.length > 0" class="section suggest-section">
+      <view class="suggest-title">
+        <text class="suggest-title-text">我的续学推荐</text>
+        <text class="suggest-sub">学完进阶，持续成长</text>
+      </view>
+      <view class="course-list">
+        <view
+          v-for="item in suggestions"
+          :key="item.documentId"
+          class="course-card"
+          @click="goToCourse(item.documentId)"
+        >
+          <view class="course-cover">
+            <image v-if="item.cover" :src="item.cover.url || item.coverUrl" mode="aspectFill" />
+            <view v-else class="cover-placeholder">🚀</view>
+          </view>
+          <view class="course-info">
+            <text class="course-title">{{ item.title }}</text>
+            <view class="pending-meta">
+              <text v-if="item.sequenceNext" class="suggest-badge">进阶续学</text>
+              <text v-if="item.category" class="enroll-type-tag">{{ item.category }}</text>
+            </view>
+            <text v-if="item.isPaid && item.price > 0" class="submit-time">价格 ¥{{ item.price }}</text>
+            <text v-else-if="item.isFree" class="submit-time">免费课程</text>
+          </view>
+          <view class="continue-btn"><text>去学习</text></view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -181,6 +212,7 @@ import {
   getPointBalance,
   getPointStatistics,
   getMyEnrollments,
+  getMyCourseSuggestions,
 } from '../../services/api'
 import type { Enrollment, EnrollType, EnrollmentStatus } from '../../services/api'
 import { validateLogin } from '../../utils/auth'
@@ -221,6 +253,8 @@ const activeTab = ref<'learning' | 'pending' | 'enrolled'>('learning')
 const learningCourses = ref<CourseItem[]>([])
 const pendingCourses = ref<PendingOrEnrolledItem[]>([])
 const enrolledCourses = ref<PendingOrEnrolledItem[]>([])
+// 我的续学推荐
+const suggestions = ref<any[]>([])
 
 const tabs = computed(() => [
   { key: 'learning' as const, label: '学习中', count: learningCourses.value.length },
@@ -362,6 +396,12 @@ async function loadData() {
   } catch (e) {
     console.error('加载数据失败', e)
   }
+
+  // 我的续学推荐（独立请求，失败不阻断主列表）
+  try {
+    const sugRes = await getMyCourseSuggestions()
+    suggestions.value = (sugRes as any)?.data || (sugRes as any) || []
+  } catch (e) { suggestions.value = [] }
 }
 
 function goToCourse(courseId: string) {
@@ -708,5 +748,33 @@ onShow(() => {
   border-radius: 30rpx;
   font-size: 28rpx;
   margin-top: 30rpx;
+}
+
+/* 我的续学推荐 */
+.suggest-section {
+  margin-top: 20rpx;
+}
+.suggest-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+  padding: 10rpx 0 20rpx;
+}
+.suggest-title-text {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333;
+}
+.suggest-sub {
+  font-size: 22rpx;
+  color: #999;
+}
+.suggest-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
 }
 </style>

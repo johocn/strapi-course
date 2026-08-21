@@ -1014,6 +1014,18 @@ export async function getActivityCalendar(month: string) {
   return request(`/zhao-point/v1/activities/calendar?month=${month}`)
 }
 
+// ==================== 课程续学推荐 API（zhao-course） ====================
+
+/** 课程详情续学（公开）：进阶/续学/相似课程 @returns res.data 为课程数组 */
+export async function getCourseRelated(documentId: string, limit = 6) {
+  return request(`/zhao-course/v1/courses/${documentId}/related?limit=${limit}`)
+}
+
+/** 学习中心个人续学清单（需登录）@returns res.data 为课程数组（含 sequenceNext / seedId） */
+export async function getMyCourseSuggestions(limit = 6) {
+  return request(`/zhao-course/v1/my/course-suggestions?limit=${limit}`)
+}
+
 // ==================== 个性化推荐 API（zhao-sso） ====================
 
 /**

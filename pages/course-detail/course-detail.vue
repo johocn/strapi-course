@@ -165,13 +165,38 @@
         </view>
       </view>
     </view>
+
+    <!-- 进阶课程 / 续学推荐 -->
+    <view v-if="relatedCourses.length > 0" class="related-section">
+      <view class="related-title">
+        <text class="related-title-text">进阶课程 / 继续学习</text>
+      </view>
+      <scroll-view scroll-x class="related-scroll">
+        <view
+          v-for="item in relatedCourses"
+          :key="item.documentId"
+          class="related-card"
+          @click="goToCourse(item.documentId)"
+        >
+          <image v-if="item.cover" :src="item.cover.url || item.coverUrl" mode="aspectFill" class="related-cover" />
+          <view v-else class="related-cover placeholder">📖</view>
+          <text class="related-name">{{ item.title }}</text>
+          <view class="related-meta">
+            <text v-if="item.sequenceNext" class="related-badge">进阶续学</text>
+            <text v-else-if="item.level" class="related-level">{{ item.level }}</text>
+            <text v-if="item.isPaid && item.price > 0" class="related-price">¥{{ item.price }}</text>
+            <text v-else-if="item.isFree" class="related-price">免费</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getCourseDetail, getLessonList, getMyLessonProgresses, getPointRecordList, getMyEnrollment, createEnrollment } from '../../services/api'
+import { getCourseDetail, getLessonList, getMyLessonProgresses, getPointRecordList, getMyEnrollment, createEnrollment, getCourseRelated } from '../../services/api'
 import type { Enrollment, EnrollType } from '../../services/api'
 import type { Course, Lesson } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
@@ -204,6 +229,15 @@ const showExam = computed(() =>
   !!(quizFlags.value.exam && (course.value?.exams?.length ?? 0) > 0 && hasGrantedRole(myRoles.value, quizFlags.value.examRoles))
 )
 const showEntryRow = computed(() => showPractice.value || showFreeAnswer.value || showExam.value)
+
+// 课程续学推荐（进阶/相似课程）
+const relatedCourses = ref<any[]>([])
+
+function loadRelated(courseId: string) {
+  getCourseRelated(courseId).then((res: any) => {
+    relatedCourses.value = (res as any)?.data || (res as any) || []
+  }).catch(() => { relatedCourses.value = [] })
+}
 
 function goQuiz(query: string) {
   uni.navigateTo({ url: `/pages/quiz/practice?${query}` })
@@ -307,6 +341,7 @@ async function loadData() {
     ])
     // 后端 findOne 返回 { data, meta }，getCourseDetail 已提取 data
     course.value = courseRes ?? null
+    loadRelated(courseId)
     const lessonData = (lessonsRes as any)?.data ?? []
     const progressData = (progressRes as any)?.data ?? []
 
@@ -545,6 +580,10 @@ function handleLockSkip() {
 
 function goBack() {
   uni.navigateBack()
+}
+
+function goToCourse(courseId: string) {
+  uni.navigateTo({ url: `/pages/course-detail/course-detail?courseId=${courseId}` })
 }
 
 function formatDuration(val: any) {
@@ -1041,5 +1080,82 @@ onShow(() => {
   font-size: 28rpx;
   color: #999;
   margin-bottom: 20rpx;
+}
+
+/* 进阶课程 / 续学推荐 */
+.related-section {
+  margin-top: 20rpx;
+  background: #fff;
+  padding: 25rpx 0;
+}
+.related-title {
+  padding: 0 30rpx 20rpx;
+}
+.related-title-text {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+}
+.related-scroll {
+  white-space: nowrap;
+  padding-left: 30rpx;
+}
+.related-card {
+  display: inline-block;
+  width: 220rpx;
+  margin-right: 20rpx;
+  background: #fff;
+  border-radius: 12rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  vertical-align: top;
+}
+.related-cover {
+  width: 100%;
+  height: 130rpx;
+  background: #f0f0f0;
+  display: block;
+
+  &.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 60rpx;
+  }
+}
+.related-name {
+  display: block;
+  font-size: 26rpx;
+  color: #333;
+  font-weight: 500;
+  padding: 12rpx 16rpx 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.related-meta {
+  padding: 8rpx 16rpx 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.related-badge {
+  font-size: 20rpx;
+  color: #fff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 2rpx 12rpx;
+  border-radius: 8rpx;
+}
+.related-level {
+  font-size: 20rpx;
+  color: #667eea;
+  background: #e8eaf6;
+  padding: 2rpx 12rpx;
+  border-radius: 8rpx;
+}
+.related-price {
+  font-size: 22rpx;
+  color: #f5222d;
+  font-weight: bold;
 }
 </style>
