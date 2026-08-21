@@ -129,7 +129,7 @@ import {
   buildAnswer,
   type QuizOpt,
 } from '../../../utils/quiz-display'
-import { getStoredAuthConfig } from '../../services/auth-config'
+import { getStoredAuthConfig } from '../../../services/auth-config'
 
 const siteConfig = getStoredAuthConfig()
 
