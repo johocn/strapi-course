@@ -27,9 +27,13 @@
           <text class="info-label">名额</text>
           <text class="info-value">{{ usedCapacity }}/{{ activity.capacity }} 已报名</text>
         </view>
-        <view v-if="activity.pointsCost > 0" class="info-row">
+        <view v-if="fee.cost > 0" class="info-row">
           <text class="info-label">费用</text>
-          <text class="info-value">{{ activity.pointsCost }} 积分（{{ activity.feeCollectAt === 'checkin' ? '签到收取' : '报名扣费' }}）</text>
+          <text class="info-value">
+            现价 {{ fee.cost }} 积分
+            <template v-if="fee.mode === 'tier' && fee.name">（档位 {{ fee.name }}）</template>
+            <template v-else-if="fee.mode === 'factor'">（基础 {{ fee.base }}）</template>
+          </text>
         </view>
 
         <view v-if="activity.description" class="desc">
@@ -56,7 +60,7 @@
       <!-- 操作区 -->
       <view v-if="!signedUp && !waitlisted && activity.status === 'signup_open'" class="action-bar">
         <view class="action-btn primary" @click="onSignup">
-          <text>{{ isFull ? '立即候补' : (activity.pointsCost > 0 ? `报名 · ${activity.pointsCost} 积分` : '立即报名') }}</text>
+          <text>{{ isFull ? '立即候补' : (fee.cost > 0 ? `报名 · ${fee.cost} 积分` : '立即报名') }}</text>
         </view>
       </view>
 
@@ -117,6 +121,13 @@ import SharePoster from '../../components/share-poster/share-poster.vue'
 let id = ''
 const activity = ref<any>(null)
 const loading = ref(false)
+const fee = ref<{ mode: string; cost: number; feeCollectAt: string; name: string; base: number }>({
+  mode: 'flat',
+  cost: 0,
+  feeCollectAt: 'signup',
+  name: '',
+  base: 0,
+})
 const signedUp = ref(false)
 const waitlisted = ref(false)
 const waitlistPosition = ref(0)
@@ -181,7 +192,27 @@ async function loadActivity() {
   } finally {
     loading.value = false
   }
+  loadFee()
   restoreSignupState()
+}
+
+/** 加载活动费用预览（失败静默保留默认值） */
+async function loadFee() {
+  if (!id) return
+  try {
+    const res = await getActivityFee(id)
+    if (res) {
+      fee.value = {
+        mode: res.mode ?? 'flat',
+        cost: Number(res.cost) || 0,
+        feeCollectAt: res.feeCollectAt ?? 'signup',
+        name: res.name ?? '',
+        base: Number(res.base) || 0,
+      }
+    }
+  } catch (e) {
+    console.warn('加载活动费用失败，使用默认值', e)
+  }
 }
 
 /** 解析用户数字 ID：优先取本地，若非整数则走接口 */

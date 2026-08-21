@@ -927,6 +927,15 @@ export async function getActivityDetail(documentId: string) {
 }
 
 /**
+ * 活动费用预览（公开）
+ * @returns res.data 为费用对象 { mode, cost, feeCollectAt, name, base }
+ */
+export async function getActivityFee(documentId: string) {
+  const res = await request(`/zhao-point/v1/activities/${documentId}/fee`)
+  return res?.data ?? res
+}
+
+/**
  * 报名活动（需登录）
  * @returns { ok: true } 报名成功；{ ok: true, waitlisted: true, position } 候补；{ ok: false, reason: 'already_signed_up' } 已报名/已在候补
  */
