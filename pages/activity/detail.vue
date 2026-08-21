@@ -88,6 +88,47 @@
     <view v-if="!activity && loading" class="loading-state"><text>加载中...</text></view>
     <view v-if="!activity && !loading" class="loading-state"><text>活动不存在或已下架</text></view>
 
+    <!-- 报名信息弹层 -->
+    <view class="signup-mask" v-if="showSignupForm" @click="showSignupForm = false">
+      <view class="signup-panel" @click.stop>
+        <text class="signup-title">填写报名信息</text>
+        <view v-for="f in formFields" :key="f.key" class="signup-field">
+          <text class="signup-label">{{ f.label }}<text v-if="f.required" class="req">*</text></text>
+
+          <input v-if="f.type === 'text' || f.type === 'phone'" class="signup-input"
+            v-model="signupData[f.key]" :type="f.type === 'phone' ? 'number' : 'text'"
+            :placeholder="f.placeholder || ''" />
+
+          <textarea v-else-if="f.type === 'textarea'" class="signup-textarea" v-model="signupData[f.key]" />
+
+          <view v-else-if="f.type === 'radio'" class="signup-options">
+            <text v-for="o in (f.options || [])" :key="o" class="signup-opt"
+              :class="{ on: signupData[f.key] === o }" @click="signupData[f.key] = o">{{ o }}</text>
+          </view>
+
+          <picker v-else-if="f.type === 'select'" mode="selector" :range="(f.options || [])"
+            @change="e => signupData[f.key] = (f.options || [])[Number(e.detail.value)]">
+            <view class="signup-picker">
+              <text>{{ signupData[f.key] || '请选择' }}</text>
+              <text class="picker-arrow">▼</text>
+            </view>
+          </picker>
+
+          <view v-else-if="f.type === 'multi'" class="signup-options">
+            <text v-for="o in (f.options || [])" :key="o" class="signup-opt"
+              :class="{ on: (signupData[f.key] || []).includes(o) }"
+              @click="toggleMulti(f, o)">{{ o }}</text>
+          </view>
+
+          <input v-else-if="f.type === 'number'" class="signup-input" type="number" v-model="signupData[f.key]" />
+        </view>
+        <view class="signup-actions">
+          <view class="signup-btn cancel" @click="showSignupForm = false"><text>取消</text></view>
+          <view class="signup-btn submit" @click="submitSignupForm"><text>确认报名</text></view>
+        </view>
+      </view>
+    </view>
+
     <!-- 分享海报（复用通用 share-poster 组件） -->
     <share-poster
       :visible="showSharePoster"
@@ -190,6 +231,13 @@ const reviewRating = ref(0)
 const reviewNps = ref<number | null>(null)
 const reviewText = ref('')
 const reviewed = ref(false)
+const showSignupForm = ref(false)
+const signupData = ref<Record<string, any>>({})
+
+const formFields = computed(() => {
+  const cfg = activity.value?.formConfig
+  return Array.isArray(cfg) ? cfg : []
+})
 
 const canWorkerScan = computed(() => {
   const m = activity.value?.checkinMode
@@ -326,10 +374,61 @@ async function generateQrcode() {
   // #endif
 }
 
-async function onSignup() {
+function openSignupForm() {
+  signupData.value = {}
+  showSignupForm.value = true
+}
+
+function toggleMulti(f: any, o: string) {
+  const arr = Array.isArray(signupData.value[f.key]) ? [...signupData.value[f.key]] : []
+  const i = arr.indexOf(o)
+  if (i >= 0) arr.splice(i, 1)
+  else arr.push(o)
+  signupData.value[f.key] = arr
+}
+
+function validateSignupForm(): string {
+  for (const f of formFields.value) {
+    const v = signupData.value[f.key]
+    const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
+    if (f.required && empty) return `请填写${f.label}`
+    if (empty) continue
+    if (f.type === 'phone' && !/^1[3-9]\d{9}$/.test(String(v))) return `请填写正确的${f.label}`
+    if (f.type === 'number') {
+      const n = Number(v)
+      if (!Number.isFinite(n)) return `请填写正确的${f.label}`
+      if (f.min != null && n < Number(f.min)) return `${f.label}不能小于${f.min}`
+      if (f.max != null && n > Number(f.max)) return `${f.label}不能大于${f.max}`
+    }
+    if ((f.type === 'radio' || f.type === 'select') && !(f.options || []).includes(v)) return `请选择正确的${f.label}`
+    if (f.type === 'multi') {
+      const bad = (v || []).some((x: string) => !(f.options || []).includes(x))
+      if (bad) return `请选择正确的${f.label}`
+    }
+  }
+  return ''
+}
+
+function submitSignupForm() {
+  const err = validateSignupForm()
+  if (err) { uni.showToast({ title: err, icon: 'none' }); return }
+  const formData = { ...signupData.value }
+  showSignupForm.value = false
+  doSignup(formData)
+}
+
+function onSignup() {
+  if (formFields.value.length) {
+    openSignupForm()
+  } else {
+    doSignup()
+  }
+}
+
+async function doSignup(formData?: Record<string, any>) {
   uni.showLoading({ title: '报名中...' })
   try {
-    const result = await signupActivity(id)
+    const result = await signupActivity(id, formData)
     if ((result as any)?.ok) {
       if ((result as any)?.waitlisted) {
         waitlisted.value = true
@@ -838,4 +937,22 @@ onShow(() => {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
 }
+
+.signup-mask { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; display: flex; align-items: flex-end; justify-content: center; }
+.signup-panel { width: 100%; max-height: 78vh; overflow-y: auto; background: #fff; border-radius: 24rpx 24rpx 0 0; padding: 32rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); }
+.signup-title { font-size: 32rpx; font-weight: 600; color: #333; margin-bottom: 24rpx; }
+.signup-field { margin-bottom: 28rpx; }
+.signup-label { display: block; font-size: 26rpx; color: #333; margin-bottom: 12rpx; }
+.req { color: #ff4d4f; margin-left: 4rpx; }
+.signup-input { border: 1rpx solid #e5e5e5; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 28rpx; }
+.signup-textarea { width: 100%; box-sizing: border-box; min-height: 140rpx; border: 1rpx solid #e5e5e5; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 28rpx; }
+.signup-picker { border: 1rpx solid #e5e5e5; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 28rpx; color: #333; display: flex; justify-content: space-between; }
+.picker-arrow { font-size: 22rpx; color: #999; }
+.signup-options { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.signup-opt { font-size: 26rpx; color: #666; padding: 10rpx 28rpx; border: 1rpx solid #ddd; border-radius: 28rpx; }
+.signup-opt.on { color: #667eea; border-color: #667eea; background: rgba(102,126,234,.08); }
+.signup-actions { display: flex; gap: 20rpx; margin-top: 32rpx; }
+.signup-btn { flex: 1; text-align: center; padding: 22rpx 0; border-radius: 40rpx; font-size: 30rpx; }
+.signup-btn.cancel { background: #f5f5f5; color: #666; }
+.signup-btn.submit { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
 </style>

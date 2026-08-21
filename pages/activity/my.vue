@@ -18,6 +18,15 @@
           <text class="venue-icon">📍</text>
           <text class="venue-name">{{ item.activity?.venueName || '待定场地' }}</text>
         </view>
+        <view v-if="formFieldList(item).length" class="item-form" @click.stop="toggleForm(item)">
+          <text class="form-toggle">{{ expandedId === keyOf(item) ? '收起报名信息' : '查看报名信息' }}</text>
+          <view v-if="expandedId === keyOf(item)" class="form-fields">
+            <view v-for="fd in formFieldList(item)" :key="fd.key" class="ff-row">
+              <text class="ff-label">{{ fd.label }}</text>
+              <text class="ff-value">{{ fd.value }}</text>
+            </view>
+          </view>
+        </view>
       </view>
     </view>
 
@@ -57,6 +66,28 @@ function goDetail(item: any) {
   const actId = item.activity?.documentId || item.activity?.id
   if (!actId) return
   uni.navigateTo({ url: `/pages/activity/detail?id=${actId}` })
+}
+
+const expandedId = ref('')
+
+function keyOf(item: any) {
+  return item.documentId || item.id || ''
+}
+
+function formFieldList(item: any) {
+  const cfg = Array.isArray(item.activity?.formConfig) ? item.activity.formConfig : []
+  const fd = item.formData && typeof item.formData === 'object' ? item.formData : {}
+  return cfg.filter((f: any) => f?.key && fd[f.key] !== undefined && fd[f.key] !== null && fd[f.key] !== '')
+    .map((f: any) => ({
+      key: f.key,
+      label: f.label || f.key,
+      value: Array.isArray(fd[f.key]) ? fd[f.key].join('、') : String(fd[f.key]),
+    }))
+}
+
+function toggleForm(item: any) {
+  const k = keyOf(item)
+  expandedId.value = expandedId.value === k ? '' : k
 }
 
 async function loadRecords() {
@@ -144,6 +175,13 @@ onShow(() => {
   font-size: 24rpx;
   color: #666;
 }
+
+.item-form { margin-top: 16rpx; border-top: 1rpx solid #f0f0f0; padding-top: 12rpx; }
+.form-toggle { font-size: 24rpx; color: #667eea; }
+.form-fields { margin-top: 12rpx; }
+.ff-row { display: flex; justify-content: space-between; gap: 20rpx; padding: 8rpx 0; font-size: 26rpx; }
+.ff-label { color: #999; flex-shrink: 0; }
+.ff-value { color: #333; text-align: right; word-break: break-all; }
 
 .empty-state {
   padding: 120rpx 30rpx;
