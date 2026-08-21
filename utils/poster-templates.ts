@@ -443,10 +443,134 @@ const productShareTemplate = {
     })
   ]
 };
+const activityShareTemplate = {
+  code: "activity_share",
+  name: "\u6D3B\u52A8\u5206\u4EAB\u6D77\u62A5",
+  canvasWidth: 600,
+  canvasHeight: 1e3,
+  backgroundColor: "#FFFFFF",
+  backgroundMode: "cover",
+  requiredVariables: ["title", "qr_code"],
+  optionalVariables: ["activity_time", "activity_venue", "invite_code"],
+  elements: [
+    baseElement({
+      elementKey: "gradient_bar",
+      elementType: "shape",
+      shapeType: "rect",
+      x: 0,
+      y: 0,
+      width: 600,
+      height: 6,
+      zIndex: 1,
+      sortOrder: 1,
+      shapeGradient: { from: "#667eea", to: "#764ba2" }
+    }),
+    baseElement({
+      elementKey: "title",
+      elementType: "text",
+      isVariable: true,
+      variableName: "title",
+      defaultValue: "\u7CBE\u54C1\u7EBF\u4E0B\u6D3B\u52A8",
+      x: 30,
+      y: 150,
+      width: 540,
+      height: 60,
+      fontSize: 36,
+      fontColor: "#333333",
+      fontWeight: "bold",
+      textAlign: "left",
+      lineHeight: 1.4,
+      zIndex: 10,
+      sortOrder: 3
+    }),
+    baseElement({
+      elementKey: "activity_time",
+      elementType: "text",
+      isVariable: true,
+      variableName: "activity_time",
+      defaultValue: "\u6D3B\u52A8\u65F6\u95F4 \u00B7 \u6B3C\u5B9A",
+      x: 30,
+      y: 240,
+      width: 540,
+      height: 40,
+      fontSize: 26,
+      fontColor: "#666666",
+      textAlign: "left",
+      zIndex: 10,
+      sortOrder: 4
+    }),
+    baseElement({
+      elementKey: "activity_venue",
+      elementType: "text",
+      isVariable: true,
+      variableName: "activity_venue",
+      defaultValue: "\u6D3B\u52A8\u573A\u6240 \u00B7 \u6B3C\u5B9A",
+      x: 30,
+      y: 295,
+      width: 540,
+      height: 40,
+      fontSize: 26,
+      fontColor: "#666666",
+      textAlign: "left",
+      zIndex: 10,
+      sortOrder: 5
+    }),
+    baseElement({
+      elementKey: "main_info_badge",
+      elementType: "text",
+      isVariable: false,
+      content: "\u626B\u7801\u62A5\u540D",
+      x: 225,
+      y: 390,
+      width: 150,
+      height: 44,
+      fontSize: 24,
+      fontColor: "#FFFFFF",
+      fontWeight: "bold",
+      textAlign: "center",
+      elementBgColor: "#667eea",
+      borderRadius: 8,
+      zIndex: 10,
+      sortOrder: 6
+    }),
+    baseElement({
+      elementKey: "qr_code",
+      elementType: "qrcode",
+      isVariable: false,
+      qrContentMode: "url_with_invite",
+      qrInviteParam: "inviteCode",
+      qrInviteSeparator: "?",
+      qrFallbackMode: "base_url_only",
+      x: 200,
+      y: 480,
+      width: 200,
+      height: 200,
+      qrSize: 200,
+      zIndex: 10,
+      sortOrder: 7
+    }),
+    baseElement({
+      elementKey: "footer_text",
+      elementType: "text",
+      isVariable: false,
+      content: "\u540D\u989D\u6709\u9650 \u00B7 \u626B\u7801\u62A5\u540D\u53C2\u52A0",
+      x: 30,
+      y: 720,
+      width: 540,
+      height: 30,
+      fontSize: 24,
+      fontColor: "#999999",
+      textAlign: "center",
+      zIndex: 10,
+      sortOrder: 8
+    })
+  ]
+};
 const BUILTIN_TEMPLATES = {
   brand_share: brandShareTemplate,
   course_share: courseShareTemplate,
-  product_share: productShareTemplate
+  product_share: productShareTemplate,
+  activity_share: activityShareTemplate
 };
 function resolveTemplateLocal(code, variables) {
   const template = BUILTIN_TEMPLATES[code] || BUILTIN_TEMPLATES["brand_share"];

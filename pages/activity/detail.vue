@@ -29,8 +29,7 @@
       </view>
 
       <!-- 分享海报入口 -->
-      <view class="share-entry" @click="showPoster">
-        <text class="share-entry-text">📤</text>
+      <view class="share-entry" @click="showSharePoster = true">
         <text>分享海报</text>
       </view>
 
@@ -66,25 +65,27 @@
       </view>
     </view>
 
-    <!-- 分享海报弹层 -->
-    <view v-if="posterVisible" class="poster-mask" @click="posterVisible = false">
-      <view class="poster-modal" @click.stop>
-        <text class="poster-title">活动分享海报</text>
-        <image v-if="posterImage" :src="posterImage" class="poster-img" mode="widthFix" />
-        <view v-else class="poster-img-placeholder"><text>海报生成中...</text></view>
-
-        <view class="poster-actions">
-          <view class="poster-btn primary" @click="savePoster"><text>保存到相册</text></view>
-          <view class="poster-btn ghost" @click="wxShare"><text>微信分享</text></view>
-        </view>
-        <view class="poster-actions">
-          <view class="poster-btn plain" @click="posterVisible = false"><text>关闭</text></view>
-        </view>
-      </view>
-    </view>
-
     <view v-if="!activity && loading" class="loading-state"><text>加载中...</text></view>
     <view v-if="!activity && !loading" class="loading-state"><text>活动不存在或已下架</text></view>
+
+    <!-- 分享海报（复用通用 share-poster 组件） -->
+    <share-poster
+      :visible="showSharePoster"
+      @close="showSharePoster = false"
+      :config="{
+        templateCode: 'activity_share',
+        title: activity?.title,
+        desc: activity?.description,
+        pagePath: `pages/activity/detail?id=${id}`,
+        variables: {
+          title: activity?.title || '',
+          activity_time: activity?.startTime
+            ? `活动时间 · ${formatTime(activity.startTime)} ~ ${formatTime(activity.endTime)}`
+            : '活动时间 · 待定',
+          activity_venue: activity?.venueName ? `活动场所 · ${activity.venueName}` : '活动场所 · 待定'
+        }
+      }"
+    />
   </view>
 </template>
 
@@ -101,9 +102,7 @@ import {
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
 import UQRCode from 'uqrcodejs'
-import { drawActivityPoster, qrcodeDataURL } from '../../utils/activity-poster'
-import { getInviteCode } from '../../utils/invite'
-import { setPageShare } from '../../utils/wx-jssdk'
+import SharePoster from '../../components/share-poster/share-poster.vue'
 
 let id = ''
 const activity = ref<any>(null)
@@ -113,8 +112,7 @@ const waitlisted = ref(false)
 const waitlistPosition = ref(0)
 const isFull = computed(() => (activity.value?.usedCapacity ?? 0) >= (activity.value?.capacity ?? 0))
 const qrcodeUrl = ref('')
-const posterVisible = ref(false)
-const posterImage = ref('')
+const showSharePoster = ref(false)
 
 const canWorkerScan = computed(() => {
   const m = activity.value?.checkinMode
@@ -217,75 +215,6 @@ async function generateQrcode() {
   // #ifndef H5
   uni.showToast({ title: '请在H5端查看二维码', icon: 'none' })
   // #endif
-}
-
-function buildShareUrl(): string {
-  // #ifdef H5
-  const base = window.location.href.split('#')[0]
-  const invite = getInviteCode()
-  return `${base}?inviteCode=${encodeURIComponent(invite)}`
-  // #endif
-  // #ifndef H5
-  return ''
-  // #endif
-}
-
-async function showPoster() {
-  const shareUrl = buildShareUrl()
-  if (!shareUrl) {
-    uni.showToast({ title: '请在H5端使用海报功能', icon: 'none' })
-    return
-  }
-  posterVisible.value = true
-  posterImage.value = ''
-  await nextTick()
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = 1500
-    canvas.height = 2400
-    drawActivityPoster(canvas, activity.value ?? {}, shareUrl)
-    setTimeout(() => {
-      posterImage.value = canvas.toDataURL('image/png')
-    }, 200)
-  } catch (e) {
-    console.error('海报生成失败', e)
-    uni.showToast({ title: '海报生成失败', icon: 'none' })
-  }
-}
-
-function savePoster() {
-  if (!posterImage.value) {
-    uni.showToast({ title: '海报尚未生成', icon: 'none' })
-    return
-  }
-  // #ifdef H5
-  const a = document.createElement('a')
-  a.href = posterImage.value
-  a.download = `活动海报_${activity.value?.title ?? 'share'}.png`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  uni.showToast({ title: '海报已保存/请查看浏览器下载', icon: 'none' })
-  // #endif
-  // #ifndef H5
-  uni.saveImageToPhotosAlbum({
-    filePath: posterImage.value,
-    success: () => uni.showToast({ title: '已保存到相册', icon: 'success' }),
-    fail: () => uni.showToast({ title: '保存失败', icon: 'none' }),
-  })
-  // #endif
-}
-
-function wxShare() {
-  const act = activity.value
-  if (!act) return
-  setPageShare({
-    title: act.title,
-    desc: (act.venueName ? `地点：${act.venueName} · ` : '') + '扫码报名！',
-    imgUrl: posterImage.value || undefined,
-    pageUrl: buildShareUrl(),
-  })
-  uni.showToast({ title: '微信分享已配置，请在右上角「...」转发', icon: 'none' })
 }
 
 async function onSignup() {
@@ -616,82 +545,8 @@ onShow(() => {
   border-radius: 16rpx;
   padding: 26rpx 30rpx;
   margin-bottom: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12rpx;
+  text-align: center;
   font-size: 30rpx;
   font-weight: 500;
-}
-.share-entry-text { font-size: 34rpx; }
-
-.poster-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40rpx;
-}
-.poster-modal {
-  width: 100%;
-  max-width: 620rpx;
-  background: #fff;
-  border-radius: 24rpx;
-  padding: 30rpx;
-  text-align: center;
-}
-.poster-title {
-  display: block;
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 20rpx;
-}
-.poster-img {
-  width: 100%;
-  border-radius: 12rpx;
-  margin-bottom: 24rpx;
-}
-.poster-img-placeholder {
-  height: 300rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 26rpx;
-  width: 100%;
-  background: #fafafa;
-  border-radius: 12rpx;
-  margin-bottom: 24rpx;
-}
-.poster-actions {
-  display: flex;
-  gap: 20rpx;
-  margin-top: 16rpx;
-}
-.poster-btn {
-  flex: 1;
-  text-align: center;
-  padding: 22rpx;
-  border-radius: 44rpx;
-  font-size: 28rpx;
-  font-weight: 500;
-
-  &.primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #fff;
-  }
-  &.ghost {
-    background: #fff;
-    color: #667eea;
-    border: 2rpx solid #667eea;
-  }
-  &.plain {
-    background: #f5f5f5;
-    color: #666;
-  }
 }
 </style>
