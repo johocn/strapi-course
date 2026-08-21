@@ -1,5 +1,9 @@
 <template>
   <view class="page-container">
+    <view class="list-top">
+      <text class="top-title">线下活动</text>
+      <view class="top-cal" @click="goCalendar">📅 日历</view>
+    </view>
     <view class="activity-list">
       <view
         v-for="item in activities"
@@ -77,6 +81,10 @@ function goDetail(item: any) {
   uni.navigateTo({ url: `/pages/activity/detail?id=${id}` })
 }
 
+function goCalendar() {
+  uni.navigateTo({ url: '/pages/activity/calendar' })
+}
+
 async function loadActivities() {
   loading.value = true
   try {
@@ -102,6 +110,10 @@ onMounted(() => {
   background: #f5f5f5;
   padding: 20rpx 30rpx 40rpx;
 }
+
+.list-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
+.top-title { font-size: 34rpx; font-weight: 600; color: #333; }
+.top-cal { font-size: 28rpx; color: #667eea; padding: 8rpx 16rpx; }
 
 .activity-list {
 }

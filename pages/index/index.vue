@@ -96,7 +96,10 @@
 
       <!-- 推荐活动 -->
       <view v-if="recommendActivities.length" class="rec-activity">
-        <text class="rec-activity-title">近期活动</text>
+        <view class="rec-activity-head">
+          <text class="rec-activity-title">近期活动</text>
+          <text class="rec-activity-entry" @click="goActivityCalendar">📅 活动日历 »</text>
+        </view>
         <view
           v-for="a in recommendActivities"
           :key="a.documentId"
@@ -455,6 +458,10 @@ async function loadRecommend() {
 
 function goToActivity(documentId: string) {
   uni.navigateTo({ url: `/pages/activity/detail?id=${documentId}` })
+}
+
+function goActivityCalendar() {
+  uni.navigateTo({ url: '/pages/activity/calendar' })
 }
 
 function goToProfile() {

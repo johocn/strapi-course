@@ -990,6 +990,11 @@ export async function getSeries(documentId: string) {
   return res?.data ?? res
 }
 
+// 活动日历聚合（公开，按月；data.days = [{ date, activities }]）
+export async function getActivityCalendar(month: string) {
+  return request(`/zhao-point/v1/activities/calendar?month=${month}`)
+}
+
 // ==================== 个性化推荐 API（zhao-sso） ====================
 
 /**

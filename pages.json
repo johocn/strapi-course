@@ -140,6 +140,13 @@
 			}
 		},
 		{
+			"path": "pages/activity/calendar",
+			"style": {
+				"navigationBarTitleText": "活动日历",
+				"enablePullDownRefresh": false
+			}
+		},
+		{
 			"path": "pages/activity/detail",
 			"style": {
 				"navigationBarTitleText": "活动详情"
