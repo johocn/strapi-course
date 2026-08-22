@@ -4,6 +4,27 @@
       <text class="top-title">线下活动</text>
       <view class="top-cal" @click="goCalendar">📅 日历</view>
     </view>
+    <view class="filter-bar">
+      <scroll-view scroll-x class="cat-scroll">
+        <view
+          class="cat-chip"
+          :class="{ active: activeCategory === '' }"
+          @click="onCategory('')">全部</view>
+        <view
+          v-for="c in categories"
+          :key="c"
+          class="cat-chip"
+          :class="{ active: activeCategory === c }"
+          @click="onCategory(c)">{{ c }}</view>
+      </scroll-view>
+      <input
+        v-model="keyword"
+        class="search-input"
+        type="text"
+        placeholder="搜索活动标题"
+        confirm-type="search"
+        @confirm="onSearch" />
+    </view>
     <view class="activity-list">
       <view
         v-for="item in activities"
@@ -43,10 +64,21 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { listActivities } from '../../services/api'
+import { listActivities, getActivityCategories } from '../../services/api'
 
 const activities = ref<any[]>([])
 const loading = ref(false)
+const categories = ref<string[]>([])
+const activeCategory = ref('')
+const keyword = ref('')
+
+function onCategory(c: string) {
+  activeCategory.value = c
+  loadActivities()
+}
+function onSearch() {
+  loadActivities()
+}
 
 function statusText(status: string): string {
   const map: Record<string, string> = {
@@ -88,10 +120,13 @@ function goCalendar() {
 async function loadActivities() {
   loading.value = true
   try {
-    const res = await listActivities({ pageSize: 50 })
+    const res = await listActivities({
+      pageSize: 50,
+      category: activeCategory.value || undefined,
+      search: keyword.value.trim() || undefined,
+    })
     const data = (res as any)?.data ?? res
-    let list: any[] = Array.isArray(data) ? data : []
-    activities.value = list
+    activities.value = Array.isArray(data) ? data : []
   } catch (e) {
     console.error('加载活动列表失败', e)
   } finally {
@@ -99,8 +134,18 @@ async function loadActivities() {
   }
 }
 
+async function loadCategories() {
+  try {
+    const res = (await getActivityCategories()) as any
+    categories.value = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
+  } catch (e) {
+    console.error('加载分类失败', e)
+  }
+}
+
 onMounted(() => {
   loadActivities()
+  loadCategories()
 })
 </script>
 
@@ -114,6 +159,18 @@ onMounted(() => {
 .list-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
 .top-title { font-size: 34rpx; font-weight: 600; color: #333; }
 .top-cal { font-size: 28rpx; color: #667eea; padding: 8rpx 16rpx; }
+
+.filter-bar { margin-bottom: 20rpx; }
+.cat-scroll { display: flex; white-space: nowrap; margin-bottom: 16rpx; }
+.cat-chip {
+  display: inline-block; padding: 10rpx 26rpx; margin-right: 16rpx;
+  background: #fff; color: #666; font-size: 26rpx; border-radius: 30rpx;
+  &.active { background: #667eea; color: #fff; }
+}
+.search-input {
+  background: #fff; border-radius: 30rpx; padding: 14rpx 24rpx;
+  font-size: 26rpx; color: #333;
+}
 
 .activity-list {
 }

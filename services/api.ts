@@ -1035,6 +1035,11 @@ export async function getActivityCalendar(month: string) {
   return request(`/zhao-point/v1/activities/calendar?month=${month}`)
 }
 
+/** 活动分类列表（公开，去重聚合）@returns res.data 为分类字符串数组 */
+export async function getActivityCategories() {
+  return request('/zhao-point/v1/activities/categories')
+}
+
 // ==================== 课程续学推荐 API（zhao-course） ====================
 
 /** 课程详情续学（公开）：进阶/续学/相似课程 @returns res.data 为课程数组 */
