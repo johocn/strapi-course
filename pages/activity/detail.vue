@@ -225,6 +225,7 @@ import {
   myActivities,
   submitActivityReview,
   getUserInfo,
+  getActivityFee,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
 import UQRCode from 'uqrcodejs'
