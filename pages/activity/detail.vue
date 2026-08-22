@@ -42,6 +42,26 @@
         </view>
       </view>
 
+      <!-- 回放与资料（活动结束后的沉淀内容） -->
+      <view v-if="hasAssets" class="card assets-card">
+        <text class="assets-title">回放与资料</text>
+        <view v-if="assets.recordingUrl" class="assets-item" @click="openRecording">
+          <text class="assets-icon">▶</text>
+          <text class="assets-name">活动回放</text>
+          <text class="assets-arrow">›</text>
+        </view>
+        <view
+          v-for="m in assets.materials"
+          :key="m.name + m.url"
+          class="assets-item"
+          @click="openMaterial(m)"
+        >
+          <text class="assets-icon">📄</text>
+          <text class="assets-name">{{ m.name }}</text>
+          <text class="assets-arrow">›</text>
+        </view>
+      </view>
+
       <!-- 分享海报入口 -->
       <view class="share-entry" @click="showSharePoster = true">
         <text>分享海报</text>
@@ -261,6 +281,35 @@ const seriesInfo = computed(() => {
   const s = activity.value?.belongsToSeries
   return s?.documentId && s?.title ? s : null
 })
+
+/** 回放/资料 assets（后端 detail 返回的 { recordingUrl, materials }） */
+const assets = computed(() => {
+  const a = activity.value?.assets
+  if (!a || typeof a !== 'object') return { recordingUrl: '', materials: [] }
+  return {
+    recordingUrl: a.recordingUrl || '',
+    materials: Array.isArray(a.materials) ? a.materials : [],
+  }
+})
+const hasAssets = computed(() => Boolean(assets.value.recordingUrl || assets.value.materials.length))
+
+function openUrl(url: string) {
+  if (!url) return
+  // #ifdef H5
+  window.open(url, '_blank')
+  // #endif
+  // #ifndef H5
+  uni.showToast({ title: '请在网页端打开', icon: 'none' })
+  // #endif
+}
+
+function openRecording() {
+  if (!assets.value.recordingUrl) return
+  openUrl(assets.value.recordingUrl)
+}
+function openMaterial(m: { name: string; url: string }) {
+  if (m?.url) openUrl(m.url)
+}
 
 function goSeries() {
   const s = seriesInfo.value
@@ -955,4 +1004,15 @@ onShow(() => {
 .signup-btn { flex: 1; text-align: center; padding: 22rpx 0; border-radius: 40rpx; font-size: 30rpx; }
 .signup-btn.cancel { background: #f5f5f5; color: #666; }
 .signup-btn.submit { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+
+.assets-card { padding: 30rpx; }
+.assets-title { display: block; font-size: 28rpx; font-weight: 600; color: #333; margin-bottom: 20rpx; }
+.assets-item {
+  display: flex; align-items: center; gap: 16rpx; padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+  &:last-child { border-bottom: none; }
+}
+.assets-icon { font-size: 30rpx; color: #667eea; }
+.assets-name { flex: 1; font-size: 28rpx; color: #333; }
+.assets-arrow { font-size: 28rpx; color: #ccc; }
 </style>
