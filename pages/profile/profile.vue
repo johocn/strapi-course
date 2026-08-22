@@ -152,6 +152,11 @@
           <view class="menu-icon">📦</view>
           <text class="menu-text">兑换记录</text>
         </view>
+        <view class="menu-item" @click="goToNotice">
+          <view class="menu-icon">🔔</view>
+          <text class="menu-text">消息中心</text>
+          <view v-if="unreadCount > 0" class="menu-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</view>
+        </view>
         <view class="menu-item" @click="goToActivity">
           <view class="menu-icon">🎪</view>
           <text class="menu-text">线下活动</text>
@@ -274,8 +279,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getPointBalance, getInviteStats, getPointFeatureFlags, getSignInStatus, getPointStatistics, login, loginWithPassword } from '../../services/api'
-import { getUser, setToken, setUser, setLoginState } from '../../utils/storage'
+import { getPointBalance, getInviteStats, getPointFeatureFlags, getSignInStatus, getPointStatistics, login, loginWithPassword, myNotices } from '../../services/api'
+import { getUser, setToken, setUser, setLoginState, getToken } from '../../utils/storage'
 import { onLogout, validateLogin, isGuest as checkIsGuest } from '../../utils/auth'
 import { showShareGuide } from '../../utils/invite'
 import { getStoredAuthConfig } from '../../services/auth-config'
@@ -327,6 +332,17 @@ const inviteCount = ref(0)
 const invitePoints = ref(0)
 const featureFlags = ref({ signInEnabled: false, tasksEnabled: false, redemptionEnabled: true, moduleEnabled: true })
 const signInStatus = ref<any>({ isSignedInToday: false, streakDays: 0 })
+const unreadCount = ref(0)
+
+async function loadUnread() {
+  if (!getToken()) return
+  try {
+    const res = await myNotices({ page: 1, pageSize: 1 })
+    unreadCount.value = Number(res?.unreadCount ?? 0)
+  } catch (e) {
+    unreadCount.value = 0
+  }
+}
 
 function updateGuestMode() {
   guestMode.value = !validateLogin()
@@ -363,6 +379,8 @@ async function loadData() {
       inviteCount.value = inviteRes.stats?.directCount || 0
       invitePoints.value = inviteCount.value * 50
     }
+
+    await loadUnread()
 
     const statRes = await getPointStatistics().catch(() => null)
     if (statRes) {
@@ -488,6 +506,10 @@ function goToExchange() {
 
 function goToRedeemRecord() {
   uni.navigateTo({ url: '/pages/redeem-record/redeem-record' })
+}
+
+function goToNotice() {
+  uni.navigateTo({ url: '/pages/notice/notice' })
 }
 
 function goToActivity() {
@@ -899,6 +921,7 @@ onUnmounted(() => {
 }
 
 .menu-item {
+  position: relative;
   width: 33.33%;
   padding: 30rpx 10rpx;
   display: flex;
@@ -914,6 +937,21 @@ onUnmounted(() => {
 .menu-text {
   font-size: 24rpx;
   color: #333;
+}
+
+.menu-badge {
+  position: absolute;
+  top: 12rpx;
+  right: 18rpx;
+  min-width: 34rpx;
+  height: 34rpx;
+  padding: 0 10rpx;
+  line-height: 34rpx;
+  border-radius: 17rpx;
+  background: #f04141;
+  color: #fff;
+  font-size: 22rpx;
+  text-align: center;
 }
 
 .menu-list {

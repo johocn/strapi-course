@@ -980,6 +980,27 @@ export async function myActivities() {
   return res?.data ?? res
 }
 
+// ==================== 消息中心 API ====================
+
+/**
+ * 我的站内信列表（需登录）
+ * @returns res.data 为 { list: 消息数组, unreadCount }，meta.pagination 含分页
+ */
+export async function myNotices(params: { page?: number; pageSize?: number; unreadOnly?: boolean } = {}) {
+  const query = new URLSearchParams()
+  if (params.page) query.append('page', String(params.page))
+  if (params.pageSize) query.append('pageSize', String(params.pageSize))
+  if (params.unreadOnly) query.append('unreadOnly', 'true')
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const res = await request(`/zhao-sso/v1/my/notices${suffix}`)
+  return res?.data ?? res
+}
+
+/** 标记单条站内信已读 */
+export async function markNoticeRead(id: number | string) {
+  return request(`/zhao-sso/v1/my/notices/${id}/read`, { method: 'POST' })
+}
+
 /**
  * 提交活动评价（仅已报名且 active 可评；rating 1-5 / nps 0-10 可空；返回 {ok:true}）
  */

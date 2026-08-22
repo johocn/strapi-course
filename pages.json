@@ -96,6 +96,13 @@
 			}
 		},
 		{
+			"path": "pages/notice/notice",
+			"style": {
+				"navigationBarTitleText": "消息中心",
+				"enablePullDownRefresh": true
+			}
+		},
+		{
 			"path": "pages/redeem-record/redeem-record",
 			"style": {
 				"navigationBarTitleText": "兑换记录"
