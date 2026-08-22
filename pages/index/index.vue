@@ -99,6 +99,7 @@
         <view class="rec-activity-head">
           <text class="rec-activity-title">近期活动</text>
           <text class="rec-activity-entry" @click="goActivityCalendar">📅 活动日历 »</text>
+          <text class="rec-activity-entry" @click="goActivityList">更多活动 »</text>
         </view>
         <view
           v-for="a in recommendActivities"
@@ -462,6 +463,10 @@ function goToActivity(documentId: string) {
 
 function goActivityCalendar() {
   uni.navigateTo({ url: '/pages/activity/calendar' })
+}
+
+function goActivityList() {
+  uni.navigateTo({ url: '/pages/activity/list' })
 }
 
 function goToProfile() {
