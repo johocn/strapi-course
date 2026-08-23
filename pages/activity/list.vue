@@ -25,7 +25,11 @@
         confirm-type="search"
         @confirm="onSearch" />
     </view>
-    <view class="activity-list">
+    <view v-if="!canUse" class="empty-state">
+      <text class="empty-icon">🎪</text>
+      <text class="empty-text">未授权或未开启</text>
+    </view>
+    <view v-else class="activity-list">
       <view
         v-for="item in activities"
         :key="item.documentId || item.id"
@@ -53,24 +57,31 @@
       </view>
     </view>
 
-    <view v-if="activities.length === 0 && !loading" class="empty-state">
+    <view v-if="canUse && activities.length === 0 && !loading" class="empty-state">
       <text class="empty-icon">🎪</text>
       <text class="empty-text">暂无线下活动</text>
     </view>
 
-    <view v-if="loading" class="loading-more"><text>加载中...</text></view>
+    <view v-if="canUse && loading" class="loading-more"><text>加载中...</text></view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { listActivities, getActivityCategories } from '../../services/api'
+import { fetchAuthConfig, getStoredAuthConfig } from '../../services/auth-config'
 
 const activities = ref<any[]>([])
 const loading = ref(false)
 const categories = ref<string[]>([])
 const activeCategory = ref('')
 const keyword = ref('')
+const canUse = ref(true)
+
+function applyActivityGate() {
+  const cfg = getStoredAuthConfig()
+  canUse.value = !cfg || (cfg.activity !== false && cfg.moduleGranted?.activity !== false)
+}
 
 function onCategory(c: string) {
   activeCategory.value = c
@@ -118,6 +129,7 @@ function goCalendar() {
 }
 
 async function loadActivities() {
+  if (!canUse.value) return
   loading.value = true
   try {
     const res = await listActivities({
@@ -143,7 +155,12 @@ async function loadCategories() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  applyActivityGate()
+  const cfg = await fetchAuthConfig()
+  if (cfg) {
+    canUse.value = cfg.activity !== false && cfg.moduleGranted?.activity !== false
+  }
   loadActivities()
   loadCategories()
 })

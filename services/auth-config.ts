@@ -48,6 +48,16 @@ export interface AuthConfig {
   channelInviteEnabled: boolean
   allowCrossChannel: boolean
 
+  // 模块开关（featureFlags）+ 当前租户模块授权（moduleGrantedForCurrentTenant）
+  exam: boolean
+  activity: boolean
+  roleGate: boolean
+  moduleGranted: {
+    exam: boolean
+    activity: boolean
+    course: boolean
+  }
+
   // 主题配置
   theme?: ThemeConfig
 }
@@ -126,6 +136,14 @@ const DEFAULT_CONFIG: AuthConfig = {
   lessonProgressEnabled: true,
   channelInviteEnabled: true,
   allowCrossChannel: false,
+  exam: true,
+  activity: true,
+  roleGate: false,
+  moduleGranted: {
+    exam: true,
+    activity: true,
+    course: true,
+  },
 }
 
 /**
@@ -178,6 +196,16 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
       lessonProgressEnabled: data.featureFlags?.lessonProgressEnabled ?? DEFAULT_CONFIG.lessonProgressEnabled,
       channelInviteEnabled: data.featureFlags?.channelInviteEnabled ?? DEFAULT_CONFIG.channelInviteEnabled,
       allowCrossChannel: data.featureFlags?.allowCrossChannel ?? DEFAULT_CONFIG.allowCrossChannel,
+
+      // 模块开关 + 当前租户模块授权
+      exam: data.featureFlags?.exam ?? DEFAULT_CONFIG.exam,
+      activity: data.featureFlags?.activity ?? DEFAULT_CONFIG.activity,
+      roleGate: data.featureFlags?.roleGate ?? DEFAULT_CONFIG.roleGate,
+      moduleGranted: {
+        exam: data.moduleGrantedForCurrentTenant?.exam ?? DEFAULT_CONFIG.moduleGranted.exam,
+        activity: data.moduleGrantedForCurrentTenant?.activity ?? DEFAULT_CONFIG.moduleGranted.activity,
+        course: data.moduleGrantedForCurrentTenant?.course ?? DEFAULT_CONFIG.moduleGranted.course,
+      },
 
       // 主题配置
       theme: data.theme,

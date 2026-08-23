@@ -2,7 +2,11 @@
   <view class="page-container">
     <!-- ===== 考试列表 ===== -->
     <view v-if="phase === 'list'">
-      <view v-if="loading" class="loading"><text>加载中...</text></view>
+      <view v-if="!canUse" class="empty-state">
+        <text class="empty-icon">🔒</text>
+        <text class="empty-text">未授权或未开启</text>
+      </view>
+      <view v-else-if="loading" class="loading"><text>加载中...</text></view>
       <view v-else-if="exams.length === 0" class="empty-state">
         <text class="empty-icon">📋</text>
         <text class="empty-text">暂无可参加的考试</text>
@@ -129,9 +133,11 @@ import {
   buildAnswer,
   type QuizOpt,
 } from '../../../utils/quiz-display'
-import { getStoredAuthConfig } from '../../../services/auth-config'
+import { fetchAuthConfig, getStoredAuthConfig } from '../../../services/auth-config'
 
 const siteConfig = getStoredAuthConfig()
+
+const canUse = ref(true)
 
 const phase = ref<'list' | 'taking' | 'result'>('list')
 const loading = ref(false)
@@ -178,6 +184,7 @@ function isAnswered(qid: string): boolean {
 }
 
 async function loadExams() {
+  if (!canUse.value) return
   loading.value = true
   try {
     const res: any = await getQuizExamList({ pageSize: 100 })
@@ -323,7 +330,17 @@ function buildAnswerFor(q: any): any {
   return buildAnswer(q.type, a.keys, opts, a.text)
 }
 
-onShow(() => {
+function applyExamGate() {
+  const cfg = getStoredAuthConfig()
+  canUse.value = !cfg || (cfg.exam !== false && cfg.moduleGranted?.exam !== false)
+}
+
+onShow(async () => {
+  applyExamGate()
+  const cfg = await fetchAuthConfig()
+  if (cfg) {
+    canUse.value = cfg.exam !== false && cfg.moduleGranted?.exam !== false
+  }
   if (phase.value === 'list') loadExams()
 })
 
@@ -331,6 +348,7 @@ onMounted(() => {
   // #ifndef H5
   uni.setNavigationBarTitle({ title: siteConfig?.siteName ?? '模拟考试' })
   // #endif
+  applyExamGate()
   loadExams()
 })
 
