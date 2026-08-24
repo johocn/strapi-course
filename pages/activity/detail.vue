@@ -149,6 +149,86 @@
       </view>
     </view>
 
+    <!-- 报名奖励引导弹层（微信环境 + 配置 rewardConfig） -->
+    <view class="signup-mask" v-if="showGuide">
+      <view class="signup-panel guide-panel" @click.stop>
+        <text class="signup-title">报名奖励</text>
+
+        <!-- Step1 登录方式 -->
+        <template v-if="guideStep === 'login'">
+          <text class="guide-tip">微信授权登录可解锁更多权益：模板消息通知报名进度 + 获得积分、专属福利。</text>
+          <view class="guide-row">
+            <view class="guide-opt" @click="chooseSilentLogin">
+              <text class="guide-opt-title">静默登录</text>
+              <text class="guide-opt-desc">直接报名，无额外权益</text>
+            </view>
+            <view class="guide-opt primary" @click="chooseAuthLogin">
+              <text class="guide-opt-title">微信授权登录</text>
+              <text class="guide-opt-desc">模板通知 · 积分 · 更多福利</text>
+            </view>
+          </view>
+        </template>
+
+        <!-- Step2 信息解锁 -->
+        <template v-else-if="guideStep === 'info'">
+          <text class="guide-tip">完善以下信息，可解锁对应奖励（选填，不强制）</text>
+          <view v-for="f in formFields" :key="f.key" class="signup-field">
+            <text class="signup-label">{{ f.label }}</text>
+            <input v-if="f.type === 'text' || f.type === 'phone'" class="signup-input"
+              v-model="signupData[f.key]" :type="f.type === 'phone' ? 'number' : 'text'"
+              :placeholder="f.placeholder || ''" />
+            <textarea v-else-if="f.type === 'textarea'" class="signup-textarea" v-model="signupData[f.key]" />
+            <view v-else-if="f.type === 'radio'" class="signup-options">
+              <text v-for="o in (f.options || [])" :key="o" class="signup-opt"
+                :class="{ on: signupData[f.key] === o }" @click="signupData[f.key] = o">{{ o }}</text>
+            </view>
+            <picker v-else-if="f.type === 'select'" mode="selector" :range="(f.options || [])"
+              @change="e => signupData[f.key] = (f.options || [])[Number(e.detail.value)]">
+              <view class="signup-picker"><text>{{ signupData[f.key] || '请选择' }}</text><text class="picker-arrow">▼</text></view>
+            </picker>
+            <view v-else-if="f.type === 'multi'" class="signup-options">
+              <text v-for="o in (f.options || [])" :key="o" class="signup-opt"
+                :class="{ on: (signupData[f.key] || []).includes(o) }" @click="toggleMulti(f, o)">{{ o }}</text>
+            </view>
+            <input v-else-if="f.type === 'number'" class="signup-input" type="number" v-model="signupData[f.key]" />
+          </view>
+          <view class="guide-actions">
+            <view class="signup-btn cancel" @click="showGuide = false"><text>取消</text></view>
+            <view class="signup-btn submit" @click="continueInfo"><text>下一步</text></view>
+          </view>
+        </template>
+
+        <!-- Step3 奖励菜单 -->
+        <template v-else-if="guideStep === 'reward'">
+          <text class="guide-tip">以下奖励已解锁{{ multiRewards.length ? '，可多选' : '' }}</text>
+          <view v-for="r in unlockedRewards" :key="r.id" class="signup-field reward-item"
+            @click="toggleGuideReward(r)">
+            <view class="reward-check" :class="{ on: chosenRewards.includes(r.id) }">
+              <text v-if="r.mode !== 'multi'" class="reward-auto">自动</text>
+              <text v-else>✓</text>
+            </view>
+            <text class="reward-name">{{ r.name }}</text>
+          </view>
+          <view class="guide-actions">
+            <view class="signup-btn cancel" @click="showGuide = false"><text>取消</text></view>
+            <view class="signup-btn submit" @click="confirmGuideSignup"><text>{{ multiRewards.length ? '确认并报名' : '直接报名' }}</text></view>
+          </view>
+        </template>
+
+        <!-- Step4 确认报名 -->
+        <template v-else-if="guideStep === 'confirm'">
+          <text class="guide-tip">确认报名后，系统将自动发放以下奖励：</text>
+          <view v-for="g in unwrapGrantedPreview" :key="g.id" class="signup-field reward-item">
+            <text class="reward-name">{{ g.name }}</text>
+          </view>
+          <view class="guide-actions">
+            <view class="signup-btn cancel" @click="showGuide = false"><text>取消</text></view>
+            <view class="signup-btn submit" @click="confirmGuideSignup"><text>确认报名</text></view>
+          </view>
+        </template>
+      </view>
+    </view>
+
     <!-- 分享海报（复用通用 share-poster 组件） -->
     <share-poster
       :visible="showSharePoster"
@@ -228,8 +308,13 @@ import {
   getActivityFee,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
+import { isWechatBrowser } from '../../utils/env'
+import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import UQRCode from 'uqrcodejs'
 import SharePoster from '../../components/share-poster/share-poster.vue'
+
+// 报名引导存储键：activityId → { loginAuth }，用于微信授权跳转回调后恢复引导进度
+const REWARD_GUIDE_KEY = 'actRewardGuide'
 
 let id = ''
 const activity = ref<any>(null)
@@ -254,6 +339,106 @@ const reviewText = ref('')
 const reviewed = ref(false)
 const showSignupForm = ref(false)
 const signupData = ref<Record<string, any>>({})
+
+// ===== 报名奖励引导 =====
+const showGuide = ref(false)
+const guideStep = ref<'login' | 'info' | 'reward' | 'confirm' | ''>('')
+const loginAuth = ref(false)
+const chosenRewards = ref<string[]>([])
+const grantMessages = ref<{ message: string; link?: string }[]>([])
+
+const rewardCfg = computed(() => {
+  const rc = activity.value?.rewardConfig
+  return rc && typeof rc === 'object' ? rc : null
+})
+
+/** 当前用户已解锁的奖励（按附加条件 condition + loginAuth + 已填信息通道过滤） */
+const unlockedRewards = computed(() => {
+  const rewards = Array.isArray(rewardCfg.value?.rewards) ? rewardCfg.value.rewards : []
+  return rewards.filter((r: any) => {
+    if (!r?.id) return false
+    // 附加条件归一化：condition 优先，兼容旧 loginRequired/channel
+    const c = r.condition || (r.loginRequired ? 'wechat_auth' : (r.channel || 'none'))
+    if (c === 'wechat_auth') return loginAuth.value
+    if (c === 'contact' || c === 'survey') return channelFilledValue(c)
+    return true // none 无条件
+  })
+})
+
+const multiRewards = computed(() => unlockedRewards.value.filter((r: any) => r.mode === 'multi'))
+
+function channelFilledValue(channel: string): boolean {
+  const hit = (Array.isArray(activity.value?.formConfig) ? activity.value.formConfig : []).filter((f: any) => f?.channel === channel && f?.key)
+  if (!hit.length) return false
+  return hit.some((f: any) => {
+    const v = signupData.value[f.key]
+    return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
+  })
+}
+
+/** 进入引导：仅微信环境且该活动配置了 rewardConfig */
+function openRewardGuide() {
+  loginAuth.value = false
+  chosenRewards.value = []
+  grantMessages.value = []
+  showGuide.value = true
+  // 若存在引导进度（微信授权回调后恢复），则已选授权登录
+  const pending = uni.getStorageSync(REWARD_GUIDE_KEY) as any
+  if (pending?.activityId === id) {
+    loginAuth.value = !!pending.loginAuth
+    uni.removeStorageSync(REWARD_GUIDE_KEY)
+    guideStep.value = 'info'
+    return
+  }
+  guideStep.value = rewardCfg.value?.loginEnabled === false ? 'info' : 'login'
+}
+
+function chooseSilentLogin() {
+  loginAuth.value = false
+  guideStep.value = nextInfoStep() || 'reward'
+}
+
+function chooseAuthLogin() {
+  // 微信授权登录：跳转 snsapi_userinfo 获取头像昵称；回调用恢复引导
+  uni.setStorageSync(REWARD_GUIDE_KEY, { activityId: id, loginAuth: true })
+  redirectToWechatAuth('snsapi_userinfo').catch(() => {
+    uni.removeStorageSync(REWARD_GUIDE_KEY)
+  })
+}
+
+/** 引导 Step2 信息解锁：按 infoChannels 逐个引导；当前通道已填则跳过，全完成前进奖励 */
+function nextInfoStep(): '' | 'info' | 'reward' {
+  const channels = Array.isArray(rewardCfg.value?.infoChannels) ? rewardCfg.value.infoChannels : []
+  const remaining = channels.filter((c: any) => c?.channel && !channelFilledValue(c.channel))
+  if (remaining.length) return 'info'
+  return 'reward'
+}
+
+function continueInfo() {
+  guideStep.value = nextInfoStep() || 'reward'
+}
+
+/** 勾选/取消多选奖励（单选自动领取，不可取消） */
+function toggleGuideReward(r: any) {
+  if (r.mode === 'multi') {
+    const i = chosenRewards.value.indexOf(r.id)
+    if (i >= 0) chosenRewards.value.splice(i, 1)
+    else chosenRewards.value.push(r.id)
+  }
+}
+
+/** 确认页预览：已选定（单选自动 + 多选已勾选）的奖励 */
+const unwrapGrantedPreview = computed(() => {
+  const singles = unlockedRewards.value.filter((r: any) => r.mode !== 'multi')
+  const multi = unlockedRewards.value.filter((r: any) => r.mode === 'multi' && chosenRewards.value.includes(r.id))
+  return [...singles, ...multi]
+})
+
+function confirmGuideSignup() {
+  const formData = { ...signupData.value }
+  showGuide.value = false
+  doSignup(formData, chosenRewards.value)
+}
 
 const formFields = computed(() => {
   const cfg = activity.value?.formConfig
@@ -468,17 +653,20 @@ function submitSignupForm() {
 }
 
 function onSignup() {
-  if (formFields.value.length) {
+  // 配置了奖励且处于微信环境 → 走分步引导；否则维持原报名表单逻辑
+  if (rewardCfg.value && isWechatBrowser()) {
+    openRewardGuide()
+  } else if (formFields.value.length) {
     openSignupForm()
   } else {
     doSignup()
   }
 }
 
-async function doSignup(formData?: Record<string, any>) {
+async function doSignup(formData?: Record<string, any>, chosenRewardsArg: string[] = []) {
   uni.showLoading({ title: '报名中...' })
   try {
-    const result = await signupActivity(id, formData)
+    const result = await signupActivity(id, formData, chosenRewardsArg)
     if ((result as any)?.ok) {
       if ((result as any)?.waitlisted) {
         waitlisted.value = true
@@ -491,6 +679,13 @@ async function doSignup(formData?: Record<string, any>) {
       waitlisted.value = false
       uni.hideLoading()
       uni.showToast({ title: '报名成功', icon: 'success' })
+      // 引导下发奖励回显：逐个 toast
+      const granted = (result as any)?.granted
+      if (Array.isArray(granted) && granted.length) {
+        setTimeout(() => granted.forEach((g: any, i: number) => {
+          setTimeout(() => uni.showToast({ title: g.message || `已获得${g.name || ''}`, icon: 'none', duration: 2000 }), i * 2200)
+        }), 800)
+      }
       nextTick(() => generateQrcode())
     } else {
       uni.hideLoading()
@@ -1005,6 +1200,21 @@ onShow(() => {
 .signup-btn { flex: 1; text-align: center; padding: 22rpx 0; border-radius: 40rpx; font-size: 30rpx; }
 .signup-btn.cancel { background: #f5f5f5; color: #666; }
 .signup-btn.submit { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+
+/* 报名奖励引导 */
+.guide-panel { padding-bottom: calc(32rpx + env(safe-area-inset-bottom)); }
+.guide-tip { display: block; font-size: 26rpx; color: #666; line-height: 1.6; margin-bottom: 24rpx; }
+.guide-row { display: flex; gap: 20rpx; }
+.guide-opt { flex: 1; border: 1rpx solid #e0e0e0; border-radius: 16rpx; padding: 28rpx 20rpx; display: flex; flex-direction: column; gap: 8rpx; }
+.guide-opt.primary { border-color: #667eea; background: rgba(102,126,234,.06); }
+.guide-opt-title { font-size: 30rpx; font-weight: 600; color: #333; }
+.guide-opt-desc { font-size: 22rpx; color: #999; }
+.guide-actions { display: flex; gap: 20rpx; margin-top: 32rpx; }
+.reward-item { display: flex; align-items: center; gap: 20rpx; padding: 20rpx; border: 1rpx solid #eee; border-radius: 12rpx; margin-bottom: 16rpx; }
+.reward-check { width: 40rpx; height: 40rpx; border-radius: 8rpx; border: 1rpx solid #ccc; display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
+.reward-check.on { background: #667eea; border-color: #667eea; }
+.reward-auto { font-size: 20rpx; color: #fff; }
+.reward-name { flex: 1; font-size: 28rpx; color: #333; }
 
 .assets-card { padding: 30rpx; }
 .assets-title { display: block; font-size: 28rpx; font-weight: 600; color: #333; margin-bottom: 20rpx; }
