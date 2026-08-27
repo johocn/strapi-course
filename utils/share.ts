@@ -6,6 +6,7 @@
 import { getStoredAuthConfig } from '../services/auth-config'
 import { getInviteCode } from './invite'
 import { getUser } from './storage'
+import { applySeoMeta } from './seo-meta'
 
 export interface PageShareInput {
   title?: string
@@ -83,6 +84,7 @@ export function setupPageShare(input: PageShareInput = {}): ShareConfig | void {
   const config: ShareConfig = { title, desc, imgUrl, pageUrl: finalUrl }
 
   // #ifdef H5
+  applySeoMeta({ title, desc, imgUrl })
   if (typeof window !== 'undefined' && (window as any).setPageShare) {
     ;(window as any).setPageShare(config)
   }
