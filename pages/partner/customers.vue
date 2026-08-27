@@ -39,6 +39,7 @@ import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { partnerApi } from '../../services/api'
 import { getToken } from '../../utils/storage'
+import { setupPageShare } from '../../utils/share'
 
 const customers = ref<any[]>([])
 const loading = ref(false)
@@ -67,6 +68,7 @@ async function loadCustomers() {
 
 onShow(() => {
   if (getToken()) loadCustomers()
+  setupPageShare({ title: '我的客户' })
 })
 </script>
 

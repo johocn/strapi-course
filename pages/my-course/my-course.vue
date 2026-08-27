@@ -216,6 +216,7 @@ import {
 } from '../../services/api'
 import type { Enrollment, EnrollType, EnrollmentStatus } from '../../services/api'
 import { validateLogin } from '../../utils/auth'
+import { setupPageShare } from '../../utils/share'
 
 interface CourseItem {
   documentId: string
@@ -414,6 +415,7 @@ function goToAllCourses() {
 
 onMounted(() => {
   if (checkLoginStatus()) loadData()
+  setupPageShare({ title: '我的课程' })
 })
 
 onShow(() => {

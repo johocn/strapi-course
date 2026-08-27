@@ -287,6 +287,7 @@ import { getPointBalance, getPointProductList, redeemPoints, getPickupLocationLi
 import { validateLogin } from '../../utils/auth'
 import { getUser } from '../../utils/storage'
 import { BASE_URL } from '../../utils/env'
+import { setupPageShare } from '../../utils/share'
 
 interface Product {
   id: number
@@ -777,6 +778,7 @@ function checkLoginStatus() {
 
 onMounted(() => {
   if (checkLoginStatus()) loadData()
+  setupPageShare({ title: '积分兑换' })
 })
 onShow(() => { if (checkLoginStatus()) loadData() })
 </script>

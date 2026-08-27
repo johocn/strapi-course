@@ -56,6 +56,7 @@
 import { ref, onMounted } from 'vue'
 import { getPickupLocationList } from '../../services/api'
 import { BASE_URL } from '../../utils/env'
+import { setupPageShare } from '../../utils/share'
 
 const channelId = ref('')
 const locations = ref<any[]>([])
@@ -179,6 +180,7 @@ onMounted(() => {
   const page = pages[pages.length - 1] as any
   channelId.value = page?.options?.channelId || page?.$page?.options?.channelId || ''
   getUserLocation()
+  setupPageShare({ title: '自提点' })
 })
 </script>
 
