@@ -255,6 +255,7 @@ import PromoContact from '../../components/promo/promo-contact.vue'
 import PromoMessage from '../../components/promo/promo-message.vue'
 import PromoFaq from '../../components/promo/promo-faq.vue'
 import PromoCustom from '../../components/promo/promo-custom.vue'
+import { setupPageShare } from '../../utils/share'
 
 /** 可渲染模块类型白名单（未知 type 不渲染） */
 const PROMO_TYPE_SET = new Set([
@@ -280,6 +281,12 @@ const page = ref<any>(null)
 const loading = ref(false)
 
 const activity = computed(() => page.value?.activity || null)
+function setupPromoShare() {
+  const a = activity.value
+  if (!a?.title) return
+  const desc = (a.description || '').slice(0, 60) || undefined
+  setupPageShare({ title: `${a.title}｜活动宣传`, desc, imgUrl: undefined })
+}
 const styleClass = computed(() => `promo-${page.value?.activity?.promoTemplate || 'summit'}`)
 // 运营端可配置 promoColors 六色值，内联 CSS 变量覆盖模板默认配色（--c-*）
 const colorVars = computed(() => {
