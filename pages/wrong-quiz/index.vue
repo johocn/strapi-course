@@ -75,6 +75,7 @@ import { onShow, onPullDownRefresh } from '@dcloudio/uni-app'
 import { getWrongQuizList, getWrongQuizDue, type WrongQuizItem } from '../../services/api'
 import { typeText, difficultyText, stripHtml } from '../../utils/quiz-display'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const siteConfig = getStoredAuthConfig()
 const status = ref<'active' | 'archived'>('active')
@@ -150,6 +151,7 @@ onMounted(() => {
   // #ifndef H5
   uni.setNavigationBarTitle({ title: siteConfig?.siteName ?? '错题集' })
   // #endif
+  setupPageShare({ title: '错题本' })
 })
 </script>
 

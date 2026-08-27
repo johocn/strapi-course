@@ -98,6 +98,7 @@ import { getRedemptionRecordList } from '../../services/api'
 import { validateLogin } from '../../utils/auth'
 import UQRCode from 'uqrcodejs'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const records = ref<any[]>([])
 const activeTab = ref('all')
@@ -260,6 +261,7 @@ onMounted(() => {
   uni.setNavigationBarTitle({ title: siteConfig?.siteName ?? '兑换记录' })
   // #endif
   if (checkLoginStatus()) loadRecords()
+  setupPageShare({ title: '兑换记录' })
 })
 onShow(() => { if (checkLoginStatus()) loadRecords() })
 </script>

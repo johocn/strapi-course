@@ -65,7 +65,9 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const siteConfig = getStoredAuthConfig()
 
@@ -86,6 +88,10 @@ function startLearning() {
   uni.setStorageSync('guideCompleted', 'true')
   uni.switchTab({ url: '/pages/index/index' })
 }
+
+onShow(() => {
+  setupPageShare({ title: '新手指引' })
+})
 </script>
 
 <style lang="scss" scoped>

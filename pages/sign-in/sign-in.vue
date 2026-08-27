@@ -59,6 +59,7 @@
 import { ref, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { signIn as apiSignIn, getSignInStatus, getPointRules } from '../../services/api'
+import { setupPageShare } from '../../utils/share'
 
 const signInStatus = ref<any>({ isSignedInToday: false, streakDays: 0 })
 const recentDates = ref<string[]>([])
@@ -126,6 +127,7 @@ async function handleSignIn() {
 onMounted(() => {
   loadStatus()
   loadMilestones()
+  setupPageShare({ title: '每日签到' })
 })
 
 onShow(() => {

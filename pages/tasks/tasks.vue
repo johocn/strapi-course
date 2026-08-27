@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { getPointTasks } from '../../services/api'
+import { setupPageShare } from '../../utils/share'
 
 const taskGroups = ref<Record<string, any[]>>({})
 
@@ -60,7 +61,10 @@ async function loadTasks() {
   }
 }
 
-onMounted(() => loadTasks())
+onMounted(() => {
+  loadTasks()
+  setupPageShare({ title: '任务中心' })
+})
 </script>
 
 <style lang="scss" scoped>

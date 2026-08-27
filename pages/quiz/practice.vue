@@ -123,6 +123,7 @@ import {
   type QuizOpt,
 } from '../../utils/quiz-display'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const siteConfig = getStoredAuthConfig()
 
@@ -329,6 +330,7 @@ onLoad((query) => {
   courseDocumentId.value = (query as any)?.course ?? ''
   lessonDocumentId.value = (query as any)?.lesson ?? ''
   kpDocumentId.value = (query as any)?.kp ?? ''
+  setupPageShare({ title: '答题练习' })
 })
 
 onMounted(async () => {

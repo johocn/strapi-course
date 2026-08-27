@@ -80,6 +80,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { getPointBalance, getPointRecordList, getPointStatistics } from '../../services/api'
 import { validateLogin } from '../../utils/auth'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 interface RecordItem {
   id: number
@@ -218,6 +219,7 @@ onMounted(() => {
     loadStats()
     loadRecords()
   }
+  setupPageShare({ title: '积分明细' })
 })
 
 onShow(() => {

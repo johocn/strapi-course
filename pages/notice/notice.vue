@@ -37,6 +37,7 @@ import { ref } from 'vue'
 import { onShow, onPullDownRefresh } from '@dcloudio/uni-app'
 import { myNotices, markNoticeRead } from '../../services/api'
 import { getToken } from '../../utils/storage'
+import { setupPageShare } from '../../utils/share'
 
 const curTab = ref<'all' | 'unread'>('all')
 const list = ref<any[]>([])
@@ -125,6 +126,7 @@ async function onTap(item: any) {
 
 onShow(() => {
   loadList()
+  setupPageShare({ title: '消息通知' })
 })
 
 onPullDownRefresh(async () => {

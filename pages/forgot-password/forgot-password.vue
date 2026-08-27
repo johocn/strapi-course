@@ -62,8 +62,10 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { BASE_API } from '../../utils/env'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const siteConfig = getStoredAuthConfig()
 
@@ -110,6 +112,10 @@ async function handleSubmit() {
     uni.showToast({ title: '发送失败，请稍后重试', icon: 'none' })
   }
 }
+
+onShow(() => {
+  setupPageShare({ title: '找回密码' })
+})
 </script>
 
 <style lang="scss" scoped>

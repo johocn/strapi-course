@@ -89,6 +89,7 @@ import { ref, computed, onMounted } from 'vue'
 import { startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints } from '../../services/api'
 import type { Question } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const questions = ref<Question[]>([])
 const currentIndex = ref(0)
@@ -297,6 +298,7 @@ onMounted(() => {
   uni.setNavigationBarTitle({ title: siteConfig?.siteName ?? '答题' })
   // #endif
   loadQuestions()
+  setupPageShare({ title: '答题中心' })
 })
 </script>
 

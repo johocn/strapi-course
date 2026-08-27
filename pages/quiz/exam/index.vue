@@ -134,6 +134,7 @@ import {
   type QuizOpt,
 } from '../../../utils/quiz-display'
 import { fetchAuthConfig, getStoredAuthConfig } from '../../../services/auth-config'
+import { setupPageShare } from '../../../utils/share'
 
 const siteConfig = getStoredAuthConfig()
 
@@ -342,6 +343,7 @@ onShow(async () => {
     canUse.value = cfg.exam !== false && cfg.moduleGranted?.exam !== false
   }
   if (phase.value === 'list') loadExams()
+  setupPageShare({ title: '考试模式' })
 })
 
 onMounted(() => {
