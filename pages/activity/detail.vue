@@ -13,6 +13,7 @@
           <view v-if="activity.status" :class="['status-tag', `status-${activity.status}`]">
             <text>{{ statusText(activity.status) }}</text>
           </view>
+          <view v-if="activity.archived" class="archived-tag">已归档</view>
         </view>
 
         <view class="info-row">
@@ -42,6 +43,31 @@
         </view>
       </view>
 
+      <!-- 宣传文案（运营端 promoModules，复用 promo 组件与主题配色） -->
+      <view v-if="modules.length" class="promo-page promo-section" :class="promoClass" :style="colorVars">
+        <block v-for="m in modules" :key="m.sort">
+          <PromoCover v-if="m.type === 'cover'" :activity="activity" :config="m.config" />
+          <PromoInfo v-else-if="m.type === 'info'" :activity="activity" :config="m.config" />
+          <PromoRich v-else-if="m.type === 'rich'" :activity="activity" :config="m.config" />
+          <PromoHighlights v-else-if="m.type === 'highlights'" :activity="activity" :config="m.config" />
+          <PromoSpeakers v-else-if="m.type === 'speakers'" :activity="activity" :config="m.config" />
+          <PromoAgenda v-else-if="m.type === 'agenda'" :activity="activity" :config="m.config" />
+          <PromoImages v-else-if="m.type === 'images'" :activity="activity" :config="m.config" />
+          <PromoFaq v-else-if="m.type === 'faq'" :activity="activity" :config="m.config" />
+          <PromoCustom v-else-if="m.type === 'custom'" :activity="activity" :config="m.config" />
+          <PromoRewards v-else-if="m.type === 'rewards'" :rewards="activity.rewardConfig" />
+          <PromoContact
+            v-else-if="m.type === 'contact'"
+            :contact="activity.promoContact"
+            @open-wechat="onPromoContact('wechat')"
+            @call-phone="onPromoContact('phone')"
+            @open-card="onPromoContact('card')"
+            @open-message="onPromoContact('message')"
+          />
+          <PromoMessage v-else-if="m.type === 'message'" :messages="[]" @open-message="onPromoContact('message')" />
+        </block>
+      </view>
+
       <!-- 回放与资料（活动结束后的沉淀内容） -->
       <view v-if="hasAssets" class="card assets-card">
         <text class="assets-title">回放与资料</text>
@@ -59,6 +85,57 @@
           <text class="assets-icon">📄</text>
           <text class="assets-name">{{ m.name }}</text>
           <text class="assets-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 学员评价（公开聚合 + 列表，有评价才展示） -->
+      <view v-if="reviewSummary.count > 0" class="card reviews-card">
+        <view class="reviews-head">
+          <text class="reviews-title">学员评价</text>
+          <view class="reviews-score">
+            <text class="reviews-score-num">{{ reviewSummary.avgRating }}</text>
+            <text class="reviews-score-sub">/5 · {{ reviewSummary.count }} 条</text>
+          </view>
+        </view>
+        <view v-for="r in reviews" :key="r.id" class="review-item">
+          <view class="review-item-top">
+            <text class="review-stars">{{ starText(r.rating) }}</text>
+            <text class="review-user">{{ r.user?.nickname || r.user?.username || '学员' }}</text>
+            <text class="review-time">{{ shortDate(r.reviewedAt) }}</text>
+          </view>
+          <text v-if="r.review" class="review-text">{{ r.review }}</text>
+        </view>
+      </view>
+
+      <!-- 学习资料包（已解锁内容，签到后含学习包） -->
+      <view v-if="learningContent && (learningContent.articles.length || learningContent.lessons.length || learningContent.courses.length)" class="card learn-card">
+        <text class="learn-title">学习资料包</text>
+        <view v-for="a in learningContent.articles" :key="'a' + a.documentId" class="learn-item" @click="openLearnArticle(a)">
+          <text class="learn-icon">📄</text>
+          <text class="learn-name">{{ a.title }}</text>
+          <text class="learn-arrow">›</text>
+        </view>
+        <view v-for="l in learningContent.lessons" :key="'l' + l.documentId" class="learn-item" @click="openLearnLesson(l)">
+          <text class="learn-icon">▶</text>
+          <text class="learn-name">{{ l.title }}</text>
+          <text class="learn-arrow">›</text>
+        </view>
+        <view v-for="c in learningContent.courses" :key="'c' + c.documentId" class="learn-item" @click="goCourse(c)">
+          <text class="learn-icon">🎓</text>
+          <text class="learn-name">{{ c.title }}</text>
+          <text class="learn-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 下次活动推荐（已结束：同系列/同类可报名场次） -->
+      <view v-if="relatedActivities.length" class="card related-card">
+        <text class="related-title">下次活动推荐</text>
+        <view v-for="ra in relatedActivities" :key="ra.documentId" class="related-item" @click="goDetail(ra)">
+          <view class="related-main">
+            <text class="related-name">{{ ra.title }}</text>
+            <text class="related-time">{{ formatTime(ra.startTime) }}</text>
+          </view>
+          <view class="related-cta"><text>{{ ra.status === 'signup_open' ? '报名' : '查看' }}</text></view>
         </view>
       </view>
 
@@ -90,16 +167,13 @@
       </view>
 
       <view v-if="signedUp" class="action-bar">
-        <view v-if="canSelf" class="action-btn primary" @click="onCheckin">
+        <view v-if="canSignin" class="action-btn primary" @click="onCheckin">
           <text>到场签到</text>
         </view>
         <view v-if="canCancel" class="action-btn ghost" @click="onCancel">
           <text>取消报名</text>
         </view>
-        <view v-if="activity.status === 'ended' && !canSelf" class="action-btn primary" @click="openReview">
-          <text>{{ reviewed ? '已评价' : '去评价' }}</text>
-        </view>
-        <view v-if="activity.status === 'ended' && canSelf" class="action-btn ghost" @click="openReview">
+        <view v-if="activity.status === 'ended'" :class="['action-btn', reviewBtnClass]" @click="openReview">
           <text>{{ reviewed ? '已评价' : '去评价' }}</text>
         </view>
       </view>
@@ -300,18 +374,39 @@ import { onShow } from '@dcloudio/uni-app'
 import {
   getActivityDetail,
   signupActivity,
+  fillQuestionnaire,
+  unlockCheck,
   cancelActivity,
   checkinActivity,
   myActivities,
   submitActivityReview,
   getUserInfo,
   getActivityFee,
+  getActivityReviews,
+  getMyActivityLearning,
+  getSeries,
+  listActivities,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
-import { isWechatBrowser } from '../../utils/env'
+import { isWechatBrowser, resolveMediaUrl } from '../../utils/env'
+import { setupPageShare } from '../../utils/share'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import UQRCode from 'uqrcodejs'
 import SharePoster from '../../components/share-poster/share-poster.vue'
+
+// 宣传模块（复用 promo 组件，渲染运营端保存的 promoModules）
+import PromoCover from '../../components/promo/promo-cover.vue'
+import PromoInfo from '../../components/promo/promo-info.vue'
+import PromoRich from '../../components/promo/promo-rich.vue'
+import PromoHighlights from '../../components/promo/promo-highlights.vue'
+import PromoSpeakers from '../../components/promo/promo-speakers.vue'
+import PromoAgenda from '../../components/promo/promo-agenda.vue'
+import PromoImages from '../../components/promo/promo-images.vue'
+import PromoFaq from '../../components/promo/promo-faq.vue'
+import PromoCustom from '../../components/promo/promo-custom.vue'
+import PromoRewards from '../../components/promo/promo-rewards.vue'
+import PromoContact from '../../components/promo/promo-contact.vue'
+import PromoMessage from '../../components/promo/promo-message.vue'
 
 // 报名引导存储键：activityId → { loginAuth }，用于微信授权跳转回调后恢复引导进度
 const REWARD_GUIDE_KEY = 'actRewardGuide'
@@ -329,7 +424,11 @@ const fee = ref<{ mode: string; cost: number; feeCollectAt: string; name: string
 const signedUp = ref(false)
 const waitlisted = ref(false)
 const waitlistPosition = ref(0)
-const isFull = computed(() => (activity.value?.usedCapacity ?? 0) >= (activity.value?.capacity ?? 0))
+// 满员判定：仅当设置了名额（capacity>0）才参与比较，避免不限名额活动误显示「立即候补」
+const isFull = computed(() => {
+  const cap = Number(activity.value?.capacity) || 0
+  return cap > 0 && (activity.value?.usedCapacity ?? 0) >= cap
+})
 const qrcodeUrl = ref('')
 const showSharePoster = ref(false)
 const showReview = ref(false)
@@ -337,6 +436,10 @@ const reviewRating = ref(0)
 const reviewNps = ref<number | null>(null)
 const reviewText = ref('')
 const reviewed = ref(false)
+const reviews = ref<any[]>([])
+const reviewSummary = ref<{ count: number; avgRating: number; reviewCount: number }>({ count: 0, avgRating: 0, reviewCount: 0 })
+const learningContent = ref<{ checkedIn: boolean; articles: any[]; lessons: any[]; courses: any[] } | null>(null)
+const relatedActivities = ref<any[]>([])
 const showSignupForm = ref(false)
 const signupData = ref<Record<string, any>>({})
 
@@ -346,20 +449,74 @@ const guideStep = ref<'login' | 'info' | 'reward' | 'confirm' | ''>('')
 const loginAuth = ref(false)
 const chosenRewards = ref<string[]>([])
 const grantMessages = ref<{ message: string; link?: string }[]>([])
+// v2 递进式领取：问卷数据 / 关注状态 / 后端解锁探测 / 报名记录
+const questionnaireData = ref<Record<string, any>>({})
+const subscribed = ref(false)
+const unlockStatus = ref<any>(null)
+const signupId = ref<number | null>(null)
+const showFillQuestionnaire = ref(false)
+const showQuestionnaire = ref(false)
 
 const rewardCfg = computed(() => {
   const rc = activity.value?.rewardConfig
   return rc && typeof rc === 'object' ? rc : null
 })
 
-/** 当前用户已解锁的奖励（按附加条件 condition + loginAuth + 已填信息通道过滤） */
+/** 解锁通道归一化：channel.type 优先，兼容旧 infoChannels（contact/survey 直映，其余默认 contact） */
+const channelType = computed(() => {
+  const ch = rewardCfg.value?.channel?.type
+  if (ch) return ch
+  const legacy = (Array.isArray(rewardCfg.value?.infoChannels) ? rewardCfg.value.infoChannels : [])[0]?.channel
+  return legacy === 'survey' ? 'survey' : 'contact'
+})
+
+/** 是否已填问卷（questionnaireData 至少一个字段有值） */
+function surveyFilledValue(): boolean {
+  const d = questionnaireData.value
+  if (!d || typeof d !== 'object') return false
+  return Object.keys(d).some((k: string) => {
+    const v = d[k]
+    if (v === undefined || v === null) return false
+    if (Array.isArray(v)) return v.length > 0
+    return String(v).trim() !== ''
+  })
+}
+
+/** 通道/条件是否达成：contact=报名表单电话必填已填；survey=问卷已填；wechat_auth/subscribe 由后端探测 */
+function channelFilledValue(channel: string): boolean {
+  if (channel === 'survey') return surveyFilledValue()
+  if (channel === 'contact') {
+    const fields = Array.isArray(activity.value?.formConfig) ? activity.value.formConfig : []
+    const phoneFields = fields.filter((f: any) => f?.type === 'phone' && f?.key)
+    if (!phoneFields.length) return false
+    return phoneFields.some((f: any) => {
+      const v = signupData.value[f.key]
+      return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
+    })
+  }
+  return false
+}
+
+/** 通道门槛：单选四选一，是否已达成 */
+const channelDone = computed(() => {
+  const t = channelType.value
+  if (t === 'contact') return channelFilledValue('contact')
+  if (t === 'survey') return surveyFilledValue()
+  if (t === 'wechat_auth') return loginAuth.value
+  if (t === 'subscribe') return subscribed.value
+  return true
+})
+
+/** 当前用户已解锁的奖励（先过通道门槛 channelDone，再按各权益独立 condition 判定） */
 const unlockedRewards = computed(() => {
   const rewards = Array.isArray(rewardCfg.value?.rewards) ? rewardCfg.value.rewards : []
+  if (!channelDone.value) return []
   return rewards.filter((r: any) => {
     if (!r?.id) return false
     // 附加条件归一化：condition 优先，兼容旧 loginRequired/channel
     const c = r.condition || (r.loginRequired ? 'wechat_auth' : (r.channel || 'none'))
     if (c === 'wechat_auth') return loginAuth.value
+    if (c === 'subscribe') return subscribed.value
     if (c === 'contact' || c === 'survey') return channelFilledValue(c)
     return true // none 无条件
   })
@@ -367,35 +524,47 @@ const unlockedRewards = computed(() => {
 
 const multiRewards = computed(() => unlockedRewards.value.filter((r: any) => r.mode === 'multi'))
 
-function channelFilledValue(channel: string): boolean {
-  const hit = (Array.isArray(activity.value?.formConfig) ? activity.value.formConfig : []).filter((f: any) => f?.channel === channel && f?.key)
-  if (!hit.length) return false
-  return hit.some((f: any) => {
-    const v = signupData.value[f.key]
-    return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
-  })
-}
-
-/** 进入引导：仅微信环境且该活动配置了 rewardConfig */
-function openRewardGuide() {
+/** 进入引导：仅微信环境且该活动配置了 rewardConfig；先探测解锁状态再定步进 */
+async function openRewardGuide() {
   loginAuth.value = false
+  subscribed.value = false
   chosenRewards.value = []
   grantMessages.value = []
+  unlockStatus.value = null
   showGuide.value = true
   // 若存在引导进度（微信授权回调后恢复），则已选授权登录
   const pending = uni.getStorageSync(REWARD_GUIDE_KEY) as any
   if (pending?.activityId === id) {
     loginAuth.value = !!pending.loginAuth
     uni.removeStorageSync(REWARD_GUIDE_KEY)
-    guideStep.value = 'info'
-    return
   }
-  guideStep.value = rewardCfg.value?.loginEnabled === false ? 'info' : 'login'
+  await refreshUnlockStatus()
+  guideStep.value = resolveGuideStep()
 }
 
+/** 调用后端解锁探测，刷新 loginAuth/subscribed/unlockStatus */
+async function refreshUnlockStatus() {
+  try {
+    const st = await unlockCheck(id, { ...signupData.value }, questionnaireData.value)
+    unlockStatus.value = st || null
+    loginAuth.value = !!st?.loginAuth
+    subscribed.value = !!st?.subscribed
+  } catch (e) {
+    unlockStatus.value = null
+  }
+}
+
+/** 按通道与达成情况决定引导步进 */
+function resolveGuideStep(): string {
+  if (channelType.value === 'wechat_auth' && !loginAuth.value) return 'login'
+  if (!channelDone.value) return 'info'
+  return 'reward'
+}
+
+/** 静默/跳过：不完成通道直接报名（未过通道门槛则无可领权益） */
 function chooseSilentLogin() {
   loginAuth.value = false
-  guideStep.value = nextInfoStep() || 'reward'
+  guideStep.value = 'reward'
 }
 
 function chooseAuthLogin() {
@@ -406,25 +575,28 @@ function chooseAuthLogin() {
   })
 }
 
-/** 引导 Step2 信息解锁：按 infoChannels 逐个引导；当前通道已填则跳过，全完成前进奖励 */
-function nextInfoStep(): '' | 'info' | 'reward' {
-  const channels = Array.isArray(rewardCfg.value?.infoChannels) ? rewardCfg.value.infoChannels : []
-  const remaining = channels.filter((c: any) => c?.channel && !channelFilledValue(c.channel))
-  if (remaining.length) return 'info'
-  return 'reward'
-}
-
+/** 信息步进完成：重新评估通道是否达成 */
 function continueInfo() {
-  guideStep.value = nextInfoStep() || 'reward'
+  guideStep.value = channelDone.value ? 'reward' : 'info'
 }
 
-/** 勾选/取消多选奖励（单选自动领取，不可取消） */
+/** 关注公众号通道：重测订阅状态（微信事件回调已写库，刷新即可） */
+async function refreshSubscribeStatus() {
+  await refreshUnlockStatus()
+  if (subscribed.value) guideStep.value = 'reward'
+  else uni.showToast({ title: '暂未检测到关注，请关注后再试', icon: 'none' })
+}
+
+/** 勾选/取消多选奖励（单选自动领取，不可取消；按 selectMode 约束） */
 function toggleGuideReward(r: any) {
-  if (r.mode === 'multi') {
-    const i = chosenRewards.value.indexOf(r.id)
-    if (i >= 0) chosenRewards.value.splice(i, 1)
-    else chosenRewards.value.push(r.id)
-  }
+  if (r.mode !== 'multi') return
+  const mode = unlockStatus.value?.selectMode || 'all'
+  const n = Math.max(1, Number(unlockStatus.value?.selectN) || 1)
+  const i = chosenRewards.value.indexOf(r.id)
+  if (i >= 0) chosenRewards.value.splice(i, 1)
+  else if (mode === 'one') chosenRewards.value = [r.id]
+  else if (mode === 'any') { if (chosenRewards.value.length < n) chosenRewards.value.push(r.id) }
+  else chosenRewards.value.push(r.id)
 }
 
 /** 确认页预览：已选定（单选自动 + 多选已勾选）的奖励 */
@@ -437,13 +609,74 @@ const unwrapGrantedPreview = computed(() => {
 function confirmGuideSignup() {
   const formData = { ...signupData.value }
   showGuide.value = false
-  doSignup(formData, chosenRewards.value)
+  doSignup(formData, chosenRewards.value, { ...questionnaireData.value })
 }
 
 const formFields = computed(() => {
   const cfg = activity.value?.formConfig
   return Array.isArray(cfg) ? cfg : []
 })
+
+// ---- 问卷（选填；补填可解锁 survey 条件权益） ----
+const questionnaireFields = computed(() => {
+  const q = activity.value?.questionnaire
+  return q && q.enabled === true && Array.isArray(q.fields) ? q.fields : []
+})
+
+/** 报名成功后是否展示「补填问卷解锁权益」入口（有 survey 条件权益且未填问卷） */
+const showFillQuestionnaireBtn = computed(() => {
+  if (!signedUp.value || !signupId.value) return false
+  if (!questionnaireFields.value.length) return false
+  const rewards = Array.isArray(rewardCfg.value?.rewards) ? rewardCfg.value.rewards : []
+  return rewards.some((r: any) => {
+    const c = r.condition || (r.loginRequired ? 'wechat_auth' : (r.channel || 'none'))
+    return c === 'survey' && !surveyFilledValue()
+  })
+})
+
+/** 权益选择方式文案（reward 步进提示） */
+const selectModeHint = computed(() => {
+  const mode = unlockStatus.value?.selectMode || 'all'
+  if (mode === 'one') return '单选'
+  if (mode === 'any') return `任选最多 ${Math.max(1, Number(unlockStatus.value?.selectN) || 1)} 项`
+  return '可多选'
+})
+
+function toggleQuestionnaireMulti(f: any, o: string) {
+  const arr = Array.isArray(questionnaireData.value[f.key]) ? [...questionnaireData.value[f.key]] : []
+  const i = arr.indexOf(o)
+  if (i >= 0) arr.splice(i, 1)
+  else arr.push(o)
+  questionnaireData.value[f.key] = arr
+}
+
+function openFillQuestionnaire() {
+  showQuestionnaire.value = true
+}
+
+/** 补填问卷：提交后重算解锁并幂等发放新增 multi 权益 */
+async function submitFillQuestionnaire() {
+  if (!signupId.value) return
+  uni.showLoading({ title: '提交中...' })
+  try {
+    const res = await fillQuestionnaire(signupId.value, { ...questionnaireData.value })
+    uni.hideLoading()
+    if ((res as any)?.ok) {
+      showQuestionnaire.value = false
+      const newly = (res as any)?.newlyUnlocked
+      if (Array.isArray(newly) && newly.length) {
+        uni.showToast({ title: `已解锁：${newly.map((g: any) => g.name || '权益').join('、')}`, icon: 'none', duration: 2500 })
+      } else {
+        uni.showToast({ title: '问卷已提交', icon: 'success' })
+      }
+    } else {
+      uni.showToast({ title: '提交失败', icon: 'none' })
+    }
+  } catch (e) {
+    uni.hideLoading()
+    uni.showToast({ title: '提交失败', icon: 'none' })
+  }
+}
 
 const canWorkerScan = computed(() => {
   const m = activity.value?.checkinMode
@@ -455,12 +688,69 @@ const canSelf = computed(() => {
   return m === 'self' || m === 'both'
 })
 
+// 签到仅在进行中/报名开放时可用（活动结束后不显示到场签到）
+const canSignin = computed(() => {
+  if (!canSelf.value) return false
+  const s = activity.value?.status
+  return s === 'signup_open' || s === 'ongoing'
+})
+// 评价按钮样式：已支持自助签到用 ghost，否则 primary
+const reviewBtnClass = computed(() => (canSelf.value ? 'ghost' : 'primary'))
+
 const canCancel = computed(() => {
   const s = activity.value?.status
   return s === 'signup_open' || s === 'ongoing'
 })
 
 const usedCapacity = computed(() => activity.value?.usedCapacity ?? 0)
+
+// ===== 宣传模块渲染 =====
+const PROMO_TYPE_SET = new Set([
+  'cover', 'info', 'rich', 'highlights', 'speakers', 'agenda', 'images', 'faq', 'custom',
+  'rewards', 'contact', 'message',
+])
+const modules = computed(() =>
+  (Array.isArray(activity.value?.promoModules) ? activity.value.promoModules : [])
+    .filter((m: any) => m && PROMO_TYPE_SET.has(m.type))
+    .sort((a: any, b: any) => Number(a.sort || 0) - Number(b.sort || 0))
+)
+const promoClass = computed(() => `promo-${activity.value?.promoTemplate || 'summit'}`)
+// 运营端可配置 promoColors，内联 CSS 变量覆盖模板默认配色（--c-*）
+const colorVars = computed(() => {
+  const c = activity.value?.promoColors
+  if (!c || typeof c !== 'object') return null
+  const vars: Record<string, string> = {}
+  if (c.primary) vars['--c-primary'] = c.primary
+  if (c.accent) vars['--c-accent'] = c.accent
+  if (c.bg) vars['--c-bg'] = c.bg
+  if (c.card) vars['--c-card'] = c.card
+  if (c.text) vars['--c-text'] = c.text
+  if (c.textDim) vars['--c-text-dim'] = c.textDim
+  return vars
+})
+
+/** 联系方式/留言模块交互：wechat=复制微信号 / phone=拨打电话 / card=名片 / message=在线留言 */
+function onPromoContact(type: 'wechat' | 'phone' | 'card' | 'message') {
+  const c = activity.value?.promoContact || {}
+  if (type === 'phone') {
+    const phone = c.phone
+    if (phone) uni.makePhoneCall({ phoneNumber: String(phone) })
+    else uni.showToast({ title: '暂无联系电话', icon: 'none' })
+  } else if (type === 'wechat') {
+    const wechat = c.wechat?.id
+    if (wechat) {
+      uni.setClipboardData({ data: wechat, success: () => uni.showToast({ title: '微信号已复制', icon: 'success' }) })
+    } else {
+      uni.showToast({ title: '暂无微信', icon: 'none' })
+    }
+  } else if (type === 'card') {
+    const card = c.card
+    const text = [card?.name, card?.title, card?.company, card?.phone, card?.wechat ? `微信：${card.wechat}` : ''].filter(Boolean).join(' · ')
+    uni.showToast({ title: text || '暂无名片', icon: 'none' })
+  } else {
+    uni.showToast({ title: '如需咨询请使用页内联系方式', icon: 'none' })
+  }
+}
 
 /** 所属活动系列（后端 populate 填充 belongsToSeries） */
 const seriesInfo = computed(() => {
@@ -526,13 +816,35 @@ async function loadActivity() {
   try {
     const res = await getActivityDetail(id)
     activity.value = res ?? null
+    setupActivityShare()
   } catch (e) {
     console.error('加载活动详情失败', e)
   } finally {
     loading.value = false
   }
   loadFee()
-  restoreSignupState()
+  await restoreSignupState()
+  loadReviews()
+  if (activity.value?.status === 'ended' || signedUp.value) loadLearning()
+  if (activity.value?.status === 'ended') loadRelated()
+}
+
+// 分享图优先级：promoModules cover.bgImage → promoAssets[0] → 旧 assets[0]，与 promo-cover.vue 一致
+function resolveActivityCover(a: any): string {
+  const cover = (Array.isArray(a?.promoModules) ? a.promoModules : []).find((m: any) => m.type === 'cover')
+  if (cover?.config?.bgImage) return resolveMediaUrl(cover.config.bgImage)
+  const promoAssets = Array.isArray(a?.promoAssets) ? a.promoAssets : []
+  if (promoAssets.length && promoAssets[0]?.url) return resolveMediaUrl(promoAssets[0].url)
+  const legacy = Array.isArray(a?.assets) ? a.assets : []
+  if (legacy.length && legacy[0]?.url) return resolveMediaUrl(legacy[0].url)
+  return ''
+}
+
+function setupActivityShare() {
+  const a = activity.value
+  if (!a?.title) return
+  const desc = (a.description || '').slice(0, 60) || undefined
+  setupPageShare({ title: a.title, desc, imgUrl: resolveActivityCover(a) || undefined })
 }
 
 /** 加载活动费用预览（失败静默保留默认值） */
@@ -663,10 +975,10 @@ function onSignup() {
   }
 }
 
-async function doSignup(formData?: Record<string, any>, chosenRewardsArg: string[] = []) {
+async function doSignup(formData?: Record<string, any>, chosenRewardsArg: string[] = [], questionnaire?: Record<string, any>) {
   uni.showLoading({ title: '报名中...' })
   try {
-    const result = await signupActivity(id, formData, chosenRewardsArg)
+    const result = await signupActivity(id, formData, chosenRewardsArg, questionnaire)
     if ((result as any)?.ok) {
       if ((result as any)?.waitlisted) {
         waitlisted.value = true
@@ -677,6 +989,7 @@ async function doSignup(formData?: Record<string, any>, chosenRewardsArg: string
       }
       signedUp.value = true
       waitlisted.value = false
+      signupId.value = (result as any)?.signupId ?? null
       uni.hideLoading()
       uni.showToast({ title: '报名成功', icon: 'success' })
       // 引导下发奖励回显：逐个 toast
@@ -797,6 +1110,7 @@ async function restoreSignupState() {
     const st = found?.status
     waitlisted.value = st === 'waiting'
     signedUp.value = st === 'active'
+    if (waitlisted.value) waitlistPosition.value = Number(found?.position) || waitlistPosition.value
     if (found?.reviewedAt) reviewed.value = true
     if (signedUp.value) nextTick(() => generateQrcode())
   } catch (e) {
@@ -842,6 +1156,82 @@ async function submitReview() {
   }
 }
 
+async function loadReviews() {
+  if (!id) return
+  try {
+    const payload = await getActivityReviews(id)
+    if (Array.isArray(payload?.rows)) {
+      reviews.value = payload.rows
+      reviewSummary.value = payload.summary ?? { count: 0, avgRating: 0, reviewCount: 0 }
+    } else if (Array.isArray(payload)) {
+      reviews.value = payload
+    }
+  } catch (e) {
+    console.warn('加载评价失败', e)
+  }
+}
+
+function starText(rating: number): string {
+  const n = Math.max(0, Math.min(5, Number(rating) || 0))
+  return '★'.repeat(n) + '☆'.repeat(5 - n)
+}
+
+function shortDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  return `${d.getMonth() + 1}-${d.getDate()}`
+}
+
+async function loadLearning() {
+  if (!id || !getToken()) return
+  try {
+    const payload = await getMyActivityLearning(id)
+    learningContent.value = payload ?? null
+  } catch (e) {
+    console.warn('加载学习内容失败', e)
+  }
+}
+
+function goCourse(c: any) {
+  if (c?.documentId) uni.navigateTo({ url: `/pages/course-detail/course-detail?courseId=${c.documentId}` })
+}
+
+function openLearnLesson(l: any) {
+  if (l?.course?.documentId) goCourse(l.course)
+  else if (l?.documentId) uni.showToast({ title: '请在课程详情中学习', icon: 'none' })
+}
+
+function openLearnArticle(a: any) {
+  if (a?.url) openUrl(a.url)
+  else uni.showToast({ title: '文章：' + (a?.title || ''), icon: 'none' })
+}
+
+async function loadRelated() {
+  if (!id) return
+  try {
+    let list: any[] = []
+    const seriesId = activity.value?.belongsToSeries?.documentId
+    if (seriesId) {
+      const s = await getSeries(seriesId)
+      list = Array.isArray(s?.activities) ? s.activities : []
+    } else if (activity.value?.category) {
+      const res = await listActivities({ category: activity.value.category, page: 1, pageSize: 8 } as any)
+      const arr = (res as any)?.data ?? res
+      list = Array.isArray(arr) ? arr : []
+    }
+    relatedActivities.value = list
+      .filter((a: any) => a.documentId !== id && a.status === 'signup_open')
+      .slice(0, 3)
+  } catch (e) {
+    console.warn('加载相关活动失败', e)
+  }
+}
+
+function goDetail(ra: any) {
+  uni.navigateTo({ url: `/pages/activity/detail?id=${ra.documentId}` })
+}
+
 onMounted(() => {
   const pages = getCurrentPages()
   const page = pages[pages.length - 1] as any
@@ -850,7 +1240,10 @@ onMounted(() => {
 })
 
 onShow(() => {
-  if (id && activity.value) restoreSignupState()
+  if (id && activity.value) {
+    restoreSignupState()
+    setupActivityShare()
+  }
 })
 </script>
 
@@ -859,6 +1252,16 @@ onShow(() => {
   min-height: 100vh;
   background: #f5f5f5;
   padding: 20rpx 30rpx 160rpx;
+}
+
+/* 宣传模块区块：背景/文字色取配色方案 --c-bg/--c-text（模板默认或 promoColors 内联覆盖），
+   与独立宣传页 promo.vue 保持一致，避免 --c-bg 定义了却不生效 */
+.promo-section {
+  background: var(--c-bg);
+  color: var(--c-text);
+  border-radius: 16rpx;
+  margin-top: 20rpx;
+  padding: 30rpx 0 40rpx;
 }
 
 .card {
@@ -1226,4 +1629,33 @@ onShow(() => {
 .assets-icon { font-size: 30rpx; color: #667eea; }
 .assets-name { flex: 1; font-size: 28rpx; color: #333; }
 .assets-arrow { font-size: 28rpx; color: #ccc; }
+
+.reviews-card { margin-top: 20rpx; }
+.reviews-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
+.reviews-title { font-size: 32rpx; font-weight: 600; color: #333; }
+.reviews-score { display: flex; align-items: baseline; }
+.reviews-score-num { font-size: 44rpx; font-weight: bold; color: #fa8c16; }
+.reviews-score-sub { font-size: 22rpx; color: #999; margin-left: 8rpx; }
+.review-item { padding: 20rpx 0; border-top: 1rpx solid #f5f5f5; }
+.review-item-top { display: flex; align-items: center; gap: 16rpx; }
+.review-stars { color: #fa8c16; font-size: 24rpx; }
+.review-user { font-size: 24rpx; color: #666; flex: 1; }
+.review-time { font-size: 22rpx; color: #bbb; }
+.review-text { display: block; font-size: 26rpx; color: #333; margin-top: 10rpx; line-height: 1.6; }
+
+.archived-tag { flex-shrink: 0; font-size: 22rpx; color: #999; background: #f5f5f5; padding: 4rpx 12rpx; border-radius: 8rpx; }
+.learn-card { margin-top: 20rpx; }
+.learn-title { font-size: 32rpx; font-weight: 600; color: #333; display: block; margin-bottom: 8rpx; }
+.learn-item { display: flex; align-items: center; padding: 18rpx 0; border-top: 1rpx solid #f5f5f5; }
+.learn-icon { font-size: 28rpx; margin-right: 14rpx; }
+.learn-name { flex: 1; font-size: 26rpx; color: #333; }
+.learn-arrow { color: #ccc; font-size: 28rpx; }
+
+.related-card { margin-top: 20rpx; }
+.related-title { font-size: 32rpx; font-weight: 600; color: #333; display: block; margin-bottom: 8rpx; }
+.related-item { display: flex; align-items: center; padding: 20rpx 0; border-top: 1rpx solid #f5f5f5; }
+.related-main { flex: 1; }
+.related-name { display: block; font-size: 28rpx; color: #333; }
+.related-time { display: block; font-size: 24rpx; color: #999; margin-top: 6rpx; }
+.related-cta { flex-shrink: 0; font-size: 24rpx; color: #667eea; border: 1rpx solid #667eea; padding: 6rpx 20rpx; border-radius: 24rpx; }
 </style>
