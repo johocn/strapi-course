@@ -59,6 +59,7 @@
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getActivityCalendar } from '../../services/api'
+import { setupPageShare } from '../../utils/share'
 
 const weekNames = ['一', '二', '三', '四', '五', '六', '日']
 const year = ref<number>(new Date().getFullYear())
@@ -142,6 +143,7 @@ onLoad(() => {
   const now = new Date()
   selectedDate.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   loadMonth()
+  setupPageShare({ title: '活动日历' })
 })
 </script>
 

@@ -53,6 +53,7 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getSeries } from '../../services/api'
+import { setupPageShare } from '../../utils/share'
 
 const series = ref<any>(null)
 const loading = ref(false)
@@ -105,6 +106,7 @@ async function loadSeries(id: string) {
 onLoad((options) => {
   const id = (options as any)?.id || ''
   loadSeries(id)
+  setupPageShare({ title: '活动系列' })
 })
 </script>
 

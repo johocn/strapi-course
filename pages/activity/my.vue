@@ -1,5 +1,13 @@
 <template>
   <view class="page-container">
+    <view v-if="learningSummary.length" class="learn-summary">
+      <text class="learn-summary-title">已解锁学习内容</text>
+      <view v-for="ls in learningSummary" :key="ls.activityId" class="learn-summary-item" @click="goLearn(ls)">
+        <text class="learn-summary-name">{{ ls.title }}</text>
+        <text class="learn-summary-count">{{ ls.count }} 项</text>
+        <text class="learn-summary-arrow">›</text>
+      </view>
+    </view>
     <view class="record-list">
       <view
         v-for="item in records"
@@ -42,8 +50,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { myActivities } from '../../services/api'
+import { myActivities, getMyActivityLearning } from '../../services/api'
 import { getToken } from '../../utils/storage'
+import { setupPageShare } from '../../utils/share'
 
 const records = ref<any[]>([])
 const loading = ref(false)
@@ -97,6 +106,7 @@ async function loadRecords() {
     const res = await myActivities()
     const list = (res as any)?.data ?? res
     records.value = Array.isArray(list) ? list : []
+    await loadLearningSummary(list)
   } catch (e) {
     console.error('加载我的活动失败', e)
   } finally {
@@ -104,8 +114,38 @@ async function loadRecords() {
   }
 }
 
+/** 汇总已报名活动的已解锁学习内容（仅已签到/已结束的报名记录） */
+const learningSummary = ref<any[]>([])
+
+async function loadLearningSummary(list: any[]) {
+  try {
+    const eligible = (Array.isArray(list) ? list : []).filter(
+      (r: any) => r?.attendance?.checkedIn || r?.activity?.status === 'ended'
+    )
+    const items: any[] = []
+    for (const r of eligible.slice(0, 5)) {
+      const actId = r.activity?.documentId || r.activity?.id
+      if (!actId) continue
+      const payload = await getMyActivityLearning(actId)
+      if (!payload) continue
+      const total = (payload.articles?.length || 0) + (payload.lessons?.length || 0) + (payload.courses?.length || 0)
+      if (total > 0) {
+        items.push({ activityId: actId, title: r.activity?.title, count: total })
+      }
+    }
+    learningSummary.value = items
+  } catch (e) {
+    console.warn('加载学习内容汇总失败', e)
+  }
+}
+
+function goLearn(ls: any) {
+  uni.navigateTo({ url: `/pages/activity/detail?id=${ls.activityId}` })
+}
+
 onMounted(() => {
   loadRecords()
+  setupPageShare({ title: '我的活动' })
 })
 
 onShow(() => {
@@ -205,4 +245,11 @@ onShow(() => {
   font-size: 26rpx;
   color: #999;
 }
+
+.learn-summary { background: #fff; border-radius: 16rpx; padding: 24rpx 28rpx; margin-bottom: 20rpx; box-shadow: 0 4rpx 16rpx rgba(0,0,0,0.05); }
+.learn-summary-title { display: block; font-size: 30rpx; font-weight: 600; color: #333; margin-bottom: 12rpx; }
+.learn-summary-item { display: flex; align-items: center; padding: 16rpx 0; border-top: 1rpx solid #f5f5f5; }
+.learn-summary-name { flex: 1; font-size: 26rpx; color: #333; }
+.learn-summary-count { font-size: 24rpx; color: #667eea; margin-right: 10rpx; }
+.learn-summary-arrow { color: #ccc; font-size: 26rpx; }
 </style>

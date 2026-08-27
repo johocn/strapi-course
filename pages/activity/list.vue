@@ -70,6 +70,7 @@
 import { ref, onMounted } from 'vue'
 import { listActivities, getActivityCategories } from '../../services/api'
 import { fetchAuthConfig, getStoredAuthConfig } from '../../services/auth-config'
+import { setupPageShare } from '../../utils/share'
 
 const activities = ref<any[]>([])
 const loading = ref(false)
@@ -132,11 +133,11 @@ async function loadActivities() {
   if (!canUse.value) return
   loading.value = true
   try {
-    const res = await listActivities({
-      pageSize: 50,
-      category: activeCategory.value || undefined,
-      search: keyword.value.trim() || undefined,
-    })
+    // 不传空参数：URLSearchParams 会把 undefined 序列化为字符串 "undefined"，导致后端误按该值过滤
+    const params: Record<string, string | number> = { pageSize: 50 }
+    if (activeCategory.value) params.category = activeCategory.value
+    if (keyword.value.trim()) params.search = keyword.value.trim()
+    const res = await listActivities(params)
     const data = (res as any)?.data ?? res
     activities.value = Array.isArray(data) ? data : []
   } catch (e) {
@@ -163,6 +164,7 @@ onMounted(async () => {
   }
   loadActivities()
   loadCategories()
+  setupPageShare({ title: '活动列表' })
 })
 </script>
 
