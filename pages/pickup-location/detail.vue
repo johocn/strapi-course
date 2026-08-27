@@ -78,6 +78,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { getPickupLocationDetail } from '../../services/api'
 import { BASE_URL } from '../../utils/env'
+import { setupPageShare } from '../../utils/share'
 
 const id = ref('')
 const detail = ref<any>(null)
@@ -113,6 +114,9 @@ async function loadDetail() {
       ...raw,
       coverUrl: getMediaUrl(raw.coverImage),
       licenseUrl: getMediaUrl(raw.businessLicense),
+    }
+    if (detail.value?.name) {
+      setupPageShare({ title: detail.value.name, desc: detail.value.address || undefined, imgUrl: undefined })
     }
   } catch (e) {
     console.error('加载自提点详情失败', e)

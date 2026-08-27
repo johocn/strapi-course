@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <view class="page-container">
     <!-- 导航栏 -->
     <view class="nav-bar">
@@ -257,6 +257,11 @@ async function loadProduct() {
       allowCrossChannel: p.allowCrossChannel || false,
       allowGlobalPoints: p.allowGlobalPoints !== false
     };
+    setupPageShare({
+      title: p.name || undefined,
+      desc: p.subtitle || p.description || undefined,
+      imgUrl: product.value.coverImageUrl || undefined,
+    })
     if (validateLogin()) {
       try {
         const balanceRes = await getPointBalance();

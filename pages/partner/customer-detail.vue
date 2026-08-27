@@ -106,6 +106,7 @@ import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { partnerApi } from '../../services/api'
 import { getToken } from '../../utils/storage'
+import { setupPageShare } from '../../utils/share'
 
 const customerId = ref<number | null>(null)
 const profile = ref<any>(null)
@@ -234,6 +235,7 @@ async function markDone(fu: any) {
 onLoad((query: any) => {
   customerId.value = query?.id ? Number(query.id) : null
   if (customerId.value != null) loadDetail()
+  setupPageShare({ title: '客户详情' })
 })
 
 onShow(() => {
