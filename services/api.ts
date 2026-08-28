@@ -39,6 +39,8 @@ const PUBLIC_ROUTES = [
   '/zhao-studio/v1/posters/',         // 海报模板（公开）
   '/zhao-point/v1/activities',        // 线下活动列表/详情（游客可看）
   '/zhao-point/v1/series',            // 活动系列列表/详情（游客可看）
+  '/zhao-point/v1/promo/activity',    // 活动宣传页聚合（游客可看）
+  '/zhao-sso/v1/wx/qrcode',           // 公众号带参二维码（公开，供关注引导）
 ]
 
 function isPublicRoute(url: string): boolean {
@@ -162,12 +164,15 @@ function doRequest(
 }
 
 /**
- * 判断是否为认证失败（401 或 403 PolicyError）
+ * 判断是否为登录失效（仅 401 才算）
+ *
+ * 注意：403 PolicyError 属于业务权限拒绝（当前用户无某权限点），不是登录失效。
+ * 若把 403 也当鉴权失败，会触发 refreshToken → 无 refresh_token 时清 token 踢回登录页，
+ * 造成"明明已登录却反复跳登录页"的死循环（如首页猜你喜欢 recommend 对 C 端用户恒 403）。
+ * 403 应在调用方按业务逻辑降级处理，不触发登出。
  */
 function isAuthFailure(statusCode: number, data: any): boolean {
-  if (statusCode === 401) return true
-  if (statusCode === 403 && data?.error?.name === 'PolicyError') return true
-  return false
+  return statusCode === 401
 }
 
 export async function request(url: string, options: any = {}) {
@@ -937,13 +942,65 @@ export async function getActivityFee(documentId: string) {
 
 /**
  * 报名活动（需登录）
- * @returns { ok: true } 报名成功；{ ok: true, waitlisted: true, position } 候补；{ ok: false, reason: 'already_signed_up' } 已报名/已在候补
+ * @param chosenRewards 客户自选的 multi 奖励 id 列表（可选）
+ * @param questionnaireData 选填问卷答案（可选）
+ * @returns { ok: true, signupId?, granted?: [{id,type,name,message,link?}], unlockInfo? } 报名成功；{ ok: true, waitlisted: true, position } 候补；{ ok: false, reason: 'already_signed_up' } 已报名
  */
-export async function signupActivity(activityId: string, formData?: Record<string, any>) {
+export async function signupActivity(
+  activityId: string,
+  formData?: Record<string, any>,
+  chosenRewards?: string[],
+  questionnaireData?: Record<string, any>,
+) {
   const res = await request('/zhao-point/v1/my/activity/signup', {
     method: 'POST',
-    data: { activityId, ...(formData && Object.keys(formData).length ? { formData } : {}) },
+    data: {
+      activityId,
+      ...(formData && Object.keys(formData).length ? { formData } : {}),
+      ...(chosenRewards?.length ? { chosenRewards } : {}),
+      ...(questionnaireData && Object.keys(questionnaireData).length ? { questionnaireData } : {}),
+    },
   })
+  return res?.data ?? res
+}
+
+/**
+ * 补填问卷（需登录，signupId 来自报名响应）
+ * @returns { ok, unlockInfo, newlyUnlocked } 已解锁的新权益列表
+ */
+export async function fillQuestionnaire(signupId: number, answers: Record<string, any>) {
+  const res = await request(`/zhao-point/v1/my/activity/signup/${signupId}/questionnaire`, {
+    method: 'PUT',
+    data: { answers },
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 解锁状态探测（需登录，报名前/关注后刷新）
+ * @returns { loginAuth, subscribed, channel, conditions, channelDone, selectMode, selectN, rewards: [{id,name,type,mode,condition,unlocked}] }
+ */
+export async function unlockCheck(
+  activityId: string,
+  formData?: Record<string, any>,
+  questionnaireData?: Record<string, any>,
+) {
+  const res = await request(`/zhao-point/v1/my/activity/${activityId}/unlock-check`, {
+    method: 'POST',
+    data: {
+      ...(formData && Object.keys(formData).length ? { formData } : {}),
+      ...(questionnaireData && Object.keys(questionnaireData).length ? { questionnaireData } : {}),
+    },
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 公众号关注二维码（公开，微信环境报名引导 Step3 使用）
+ * @returns { wx_url } 二维码图片地址；未配置公众号时返回 { wx_url: null }
+ */
+export async function getActivityFollowQrcode(activityId: string) {
+  const res = await request(`/zhao-sso/v1/wx/qrcode?scene=act_follow:${activityId}`, { method: 'GET' })
   return res?.data ?? res
 }
 
@@ -980,6 +1037,25 @@ export async function myActivities() {
   return res?.data ?? res
 }
 
+/**
+ * 活动公开评价列表 + 聚合（公开，无需登录）
+ * @returns { rows, summary: { count, avgRating, reviewCount }, pagination }
+ */
+export async function getActivityReviews(documentId: string, params: { page?: number; pageSize?: number } = {}) {
+  const query = new URLSearchParams(params as any).toString()
+  const res = await request(`/zhao-point/v1/activities/${documentId}/reviews${query ? '?' + query : ''}`)
+  return res?.data ?? res
+}
+
+/**
+ * 本人已解锁学习内容（需登录）
+ * @returns { checkedIn, articles, lessons, courses }
+ */
+export async function getMyActivityLearning(activityId: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${activityId}/learning`)
+  return res?.data ?? res
+}
+
 // ==================== 消息中心 API ====================
 
 /**
@@ -1009,6 +1085,30 @@ export function submitActivityReview(activityDocumentId: string, data: { rating?
     method: 'POST',
     data,
   })
+}
+
+/**
+ * 宣传页聚合（公开）
+ * @returns { activity, modules, contact, rewards, signupStatus }
+ */
+export async function getPromoPage(activityDocumentId: string) {
+  const res = await request(`/zhao-point/v1/promo/activity/${activityDocumentId}`)
+  return res?.data ?? res
+}
+
+/** 用户留言（需登录） */
+export async function sendActivityMessage(activityDocumentId: string, content: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${activityDocumentId}/message`, {
+    method: 'POST',
+    data: { content },
+  })
+  return res?.data ?? res
+}
+
+/** 我的留言+运营回复列表（需登录） */
+export async function listMyActivityMessages(activityDocumentId: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${activityDocumentId}/messages`)
+  return res?.data ?? res
 }
 
 // ==================== 活动系列相关 API ====================

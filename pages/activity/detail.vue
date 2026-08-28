@@ -223,29 +223,34 @@
       </view>
     </view>
 
-    <!-- 报名奖励引导弹层（微信环境 + 配置 rewardConfig） -->
+    <!-- 报名奖励引导弹层（微信环境必走：对比法登录 + 分级积分 + 关注引导） -->
     <view class="signup-mask" v-if="showGuide">
       <view class="signup-panel guide-panel" @click.stop>
         <text class="signup-title">报名奖励</text>
 
-        <!-- Step1 登录方式 -->
+        <!-- Step1 登录方式（对比法：授权突出，静默弱化） -->
         <template v-if="guideStep === 'login'">
-          <text class="guide-tip">微信授权登录可解锁更多权益：模板消息通知报名进度 + 获得积分、专属福利。</text>
+          <text class="guide-tip">微信授权登录可解锁更多权益：模板消息通知报名进度 + 更高积分、专属福利。</text>
           <view class="guide-row">
-            <view class="guide-opt" @click="chooseSilentLogin">
-              <text class="guide-opt-title">静默登录</text>
-              <text class="guide-opt-desc">直接报名，无额外权益</text>
-            </view>
-            <view class="guide-opt primary" @click="chooseAuthLogin">
+            <view class="guide-opt primary highlight" @click="chooseAuthLogin">
               <text class="guide-opt-title">微信授权登录</text>
-              <text class="guide-opt-desc">模板通知 · 积分 · 更多福利</text>
+              <text class="guide-opt-desc">积分 +10 · 模板通知报名进度/候补转正</text>
+              <view class="guide-benefits">
+                <text class="guide-benefit">✓ 关注公众号自动同步</text>
+                <text class="guide-benefit">✓ 头像昵称一键同步</text>
+              </view>
+              <view class="guide-btn auth">微信授权登录</view>
+            </view>
+            <view class="guide-opt muted" @click="chooseSilentLogin">
+              <text class="guide-opt-title muted-title">静默登录</text>
+              <text class="guide-opt-desc">直接报名，基础 5 积分</text>
             </view>
           </view>
         </template>
 
-        <!-- Step2 信息解锁 -->
+        <!-- Step2 信息完善（联系方式+20 / 问卷+50，选填） -->
         <template v-else-if="guideStep === 'info'">
-          <text class="guide-tip">完善以下信息，可解锁对应奖励（选填，不强制）</text>
+          <text class="guide-tip">完善以下信息可获额外积分（选填）：联系方式 +20 · 问卷 +50</text>
           <view v-for="f in formFields" :key="f.key" class="signup-field">
             <text class="signup-label">{{ f.label }}</text>
             <input v-if="f.type === 'text' || f.type === 'phone'" class="signup-input"
@@ -266,13 +271,31 @@
             </view>
             <input v-else-if="f.type === 'number'" class="signup-input" type="number" v-model="signupData[f.key]" />
           </view>
+          <view v-if="questionnaireFields.length" class="survey-entry" @click="openFillQuestionnaire">
+            <text class="survey-entry-text">填写问卷（+50 积分）</text>
+            <text class="survey-entry-arrow">›</text>
+          </view>
           <view class="guide-actions">
             <view class="signup-btn cancel" @click="showGuide = false"><text>取消</text></view>
             <view class="signup-btn submit" @click="continueInfo"><text>下一步</text></view>
           </view>
         </template>
 
-        <!-- Step3 奖励菜单 -->
+        <!-- Step3 关注公众号（+50 积分） -->
+        <template v-else-if="guideStep === 'follow'">
+          <text class="guide-tip">关注公众号额外获得 50 积分，并可接收活动提醒</text>
+          <view class="qrcode-container">
+            <image v-if="wxQrcodeUrl" :src="wxQrcodeUrl" class="qrcode-img" mode="aspectFit" />
+            <text v-else class="qrcode-placeholder">公众号二维码加载中...</text>
+          </view>
+          <text class="qrcode-hint">长按识别二维码关注公众号</text>
+          <view class="guide-actions">
+            <view class="signup-btn cancel" @click="showGuide = false"><text>跳过</text></view>
+            <view class="signup-btn submit" @click="refreshSubscribeStatus"><text>我已关注，刷新</text></view>
+          </view>
+        </template>
+
+        <!-- Step4 奖励菜单（有 rewardConfig 才展示） -->
         <template v-else-if="guideStep === 'reward'">
           <text class="guide-tip">以下奖励已解锁{{ multiRewards.length ? '，可多选' : '' }}</text>
           <view v-for="r in unlockedRewards" :key="r.id" class="signup-field reward-item"
@@ -289,9 +312,15 @@
           </view>
         </template>
 
-        <!-- Step4 确认报名 -->
+        <!-- Step5 确认报名（积分明细 + 权益） -->
         <template v-else-if="guideStep === 'confirm'">
-          <text class="guide-tip">确认报名后，系统将自动发放以下奖励：</text>
+          <text class="guide-tip">确认报名后，将获得以下积分：</text>
+          <view class="points-preview">
+            <view v-for="item in pointsPreviewList" :key="item.key" class="points-item">
+              <text class="points-item-name">{{ item.name }}</text>
+              <text class="points-item-val">+{{ item.points }}</text>
+            </view>
+          </view>
           <view v-for="g in unwrapGrantedPreview" :key="g.id" class="signup-field reward-item">
             <text class="reward-name">{{ g.name }}</text>
           </view>
@@ -376,6 +405,7 @@ import {
   signupActivity,
   fillQuestionnaire,
   unlockCheck,
+  getActivityFollowQrcode,
   cancelActivity,
   checkinActivity,
   myActivities,
@@ -445,7 +475,7 @@ const signupData = ref<Record<string, any>>({})
 
 // ===== 报名奖励引导 =====
 const showGuide = ref(false)
-const guideStep = ref<'login' | 'info' | 'reward' | 'confirm' | ''>('')
+const guideStep = ref<'login' | 'info' | 'follow' | 'reward' | 'confirm' | ''>('')
 const loginAuth = ref(false)
 const chosenRewards = ref<string[]>([])
 const grantMessages = ref<{ message: string; link?: string }[]>([])
@@ -456,6 +486,9 @@ const unlockStatus = ref<any>(null)
 const signupId = ref<number | null>(null)
 const showFillQuestionnaire = ref(false)
 const showQuestionnaire = ref(false)
+// 公众号关注二维码（微信环境报名引导 Step3；未配置公众号时 followEnabled=false 跳过）
+const wxQrcodeUrl = ref('')
+const followEnabled = ref(false)
 
 const rewardCfg = computed(() => {
   const rc = activity.value?.rewardConfig
@@ -524,13 +557,45 @@ const unlockedRewards = computed(() => {
 
 const multiRewards = computed(() => unlockedRewards.value.filter((r: any) => r.mode === 'multi'))
 
-/** 进入引导：仅微信环境且该活动配置了 rewardConfig；先探测解锁状态再定步进 */
+// 分级积分预览：单一来源取后端 unlockCheck.pointsPreview；接口异常降级固定兜底值
+const FALLBACK_POINTS = { base: 5, auth: 5, contact: 20, survey: 50, subscribe: 50 }
+const pointsPreview = computed(() => {
+  const p = unlockStatus.value?.pointsPreview
+  if (p && typeof p === 'object' && typeof p.total === 'number') return p
+  return { ...FALLBACK_POINTS, total: Object.values(FALLBACK_POINTS).reduce((a: number, b: number) => a + b, 0) }
+})
+const pointsPreviewList = computed(() => {
+  const p = pointsPreview.value
+  const items = [
+    { key: 'base', name: '报名基础积分', points: p.base },
+    { key: 'auth', name: '微信授权登录', points: p.auth },
+    { key: 'contact', name: '完善联系方式', points: p.contact },
+    { key: 'survey', name: '回答问卷', points: p.survey },
+    { key: 'subscribe', name: '关注公众号', points: p.subscribe },
+  ]
+  return items.filter(i => Number(i.points) > 0)
+})
+
+// 信息步：有报名表单(电话)或问卷且对应项未填才需要
+const hasPhoneField = computed(() => formFields.value.some((f: any) => f?.type === 'phone' && f?.key))
+const needsInfo = computed(() => {
+  const contactNeeded = hasPhoneField.value && !channelFilledValue('contact')
+  const surveyNeeded = questionnaireFields.value.length > 0 && !surveyFilledValue()
+  return contactNeeded || surveyNeeded
+})
+
+// 关注步：未关注且二维码可用才展示
+const showFollowStep = computed(() => !subscribed.value && followEnabled.value)
+
+/** 进入引导：微信环境无条件触发（不再依赖 rewardConfig）；先探测解锁状态再定步进 */
 async function openRewardGuide() {
   loginAuth.value = false
   subscribed.value = false
   chosenRewards.value = []
   grantMessages.value = []
   unlockStatus.value = null
+  wxQrcodeUrl.value = ''
+  followEnabled.value = false
   showGuide.value = true
   // 若存在引导进度（微信授权回调后恢复），则已选授权登录
   const pending = uni.getStorageSync(REWARD_GUIDE_KEY) as any
@@ -539,6 +604,7 @@ async function openRewardGuide() {
     uni.removeStorageSync(REWARD_GUIDE_KEY)
   }
   await refreshUnlockStatus()
+  if (!subscribed.value) await loadFollowQrcode()
   guideStep.value = resolveGuideStep()
 }
 
@@ -554,17 +620,35 @@ async function refreshUnlockStatus() {
   }
 }
 
-/** 按通道与达成情况决定引导步进 */
-function resolveGuideStep(): string {
-  if (channelType.value === 'wechat_auth' && !loginAuth.value) return 'login'
-  if (!channelDone.value) return 'info'
-  return 'reward'
+/** 加载公众号关注二维码（失败/未配置 → followEnabled=false，跳过关注步不阻塞报名） */
+async function loadFollowQrcode() {
+  try {
+    const res = await getActivityFollowQrcode(id)
+    const url = (res as any)?.wx_url || (res as any)?.data?.wx_url || ''
+    wxQrcodeUrl.value = url
+    followEnabled.value = !!url
+  } catch (e) {
+    wxQrcodeUrl.value = ''
+    followEnabled.value = false
+  }
 }
 
-/** 静默/跳过：不完成通道直接报名（未过通道门槛则无可领权益） */
+/** 线性向导下一步：login → info → follow → reward(有权益才展示) → confirm */
+function resolveNextStep(): string {
+  if (needsInfo.value) return 'info'
+  if (showFollowStep.value) return 'follow'
+  if (unlockedRewards.value.length) return 'reward'
+  return 'confirm'
+}
+function resolveGuideStep(): string {
+  if (!loginAuth.value) return 'login'
+  return resolveNextStep()
+}
+
+/** 静默/跳过登录：跳过登录对比步，继续后续 info/follow/reward */
 function chooseSilentLogin() {
   loginAuth.value = false
-  guideStep.value = 'reward'
+  guideStep.value = resolveNextStep()
 }
 
 function chooseAuthLogin() {
@@ -575,16 +659,20 @@ function chooseAuthLogin() {
   })
 }
 
-/** 信息步进完成：重新评估通道是否达成 */
+/** 信息步进完成：重新评估下一步（可能仍需 info） */
 function continueInfo() {
-  guideStep.value = channelDone.value ? 'reward' : 'info'
+  guideStep.value = resolveNextStep()
 }
 
-/** 关注公众号通道：重测订阅状态（微信事件回调已写库，刷新即可） */
+/** 关注公众号通道：重测订阅状态（微信事件回调已写库，刷新即可）；已关注则发关注积分并推进 */
 async function refreshSubscribeStatus() {
   await refreshUnlockStatus()
-  if (subscribed.value) guideStep.value = 'reward'
-  else uni.showToast({ title: '暂未检测到关注，请关注后再试', icon: 'none' })
+  if (subscribed.value) {
+    guideStep.value = resolveNextStep()
+    uni.showToast({ title: '已关注，+50积分', icon: 'none' })
+  } else {
+    uni.showToast({ title: '暂未检测到关注，请关注后再试', icon: 'none' })
+  }
 }
 
 /** 勾选/取消多选奖励（单选自动领取，不可取消；按 selectMode 约束） */
@@ -965,8 +1053,8 @@ function submitSignupForm() {
 }
 
 function onSignup() {
-  // 配置了奖励且处于微信环境 → 走分步引导；否则维持原报名表单逻辑
-  if (rewardCfg.value && isWechatBrowser()) {
+  // 微信环境必走对比法引导（不再依赖 rewardConfig，无权益时以分级积分兜底）
+  if (isWechatBrowser()) {
     openRewardGuide()
   } else if (formFields.value.length) {
     openSignupForm()
@@ -1618,6 +1706,40 @@ onShow(() => {
 .reward-check.on { background: #667eea; border-color: #667eea; }
 .reward-auto { font-size: 20rpx; color: #fff; }
 .reward-name { flex: 1; font-size: 28rpx; color: #333; }
+
+/* 对比法：授权主卡高亮，静默弱化 */
+.guide-opt.primary.highlight {
+  border-color: #667eea;
+  background: linear-gradient(135deg, rgba(102,126,234,.14) 0%, rgba(118,75,162,.14) 100%);
+}
+.guide-opt.muted {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding: 20rpx 8rpx;
+  align-items: flex-start;
+}
+.guide-opt.muted .guide-opt-title.muted-title { font-size: 26rpx; color: #999; font-weight: 400; text-decoration: underline; }
+.guide-benefits { display: flex; flex-direction: column; gap: 6rpx; margin-top: 8rpx; }
+.guide-benefit { font-size: 22rpx; color: #5b4bb5; }
+.guide-btn.auth {
+  margin-top: 20rpx; padding: 16rpx 0; border-radius: 36rpx; text-align: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; font-size: 28rpx; font-weight: 600;
+}
+/* 关注二维码 */
+.qrcode-container { display: flex; justify-content: center; padding: 16rpx 0 8rpx; }
+.qrcode-img { width: 360rpx; height: 360rpx; }
+.qrcode-placeholder, .qrcode-hint { display: block; text-align: center; font-size: 24rpx; color: #999; }
+.qrcode-hint { margin-bottom: 8rpx; }
+/* 积分明细 */
+.points-preview { border: 1rpx solid #eee; border-radius: 12rpx; padding: 8rpx 20rpx; margin-bottom: 16rpx; }
+.points-item { display: flex; justify-content: space-between; align-items: center; padding: 12rpx 0; }
+.points-item-name { font-size: 26rpx; color: #333; }
+.points-item-val { font-size: 26rpx; font-weight: 600; color: #fa8c16; }
+/* 问卷入口 */
+.survey-entry { display: flex; justify-content: space-between; align-items: center; padding: 20rpx; border: 1rpx dashed #667eea; border-radius: 12rpx; margin-bottom: 20rpx; }
+.survey-entry-text { font-size: 26rpx; color: #667eea; }
+.survey-entry-arrow { font-size: 28rpx; color: #667eea; }
 
 .assets-card { padding: 30rpx; }
 .assets-title { display: block; font-size: 28rpx; font-weight: 600; color: #333; margin-bottom: 20rpx; }
