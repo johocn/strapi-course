@@ -164,6 +164,10 @@
           <view class="menu-icon">🎪</view>
           <text class="menu-text">线下活动</text>
         </view>
+        <view class="menu-item" @click="goToMyInvitation">
+          <view class="menu-icon">🙌</view>
+          <text class="menu-text">我的邀请</text>
+        </view>
         <view class="menu-item" @click="goToCustomers">
           <view class="menu-icon">👥</view>
           <text class="menu-text">我的客户</text>
@@ -591,6 +595,10 @@ function goToNotice() {
 
 function goToActivity() {
   uni.navigateTo({ url: '/pages/activity/list' })
+}
+
+function goToMyInvitation() {
+  uni.navigateTo({ url: '/pages/activity/my-invitation' })
 }
 
 function goToCustomers() {
