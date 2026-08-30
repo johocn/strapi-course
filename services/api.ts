@@ -43,6 +43,7 @@ const PUBLIC_ROUTES = [
   '/zhao-point/v1/series',            // 活动系列列表/详情（游客可看）
   '/zhao-point/v1/promo/activity',    // 活动宣传页聚合（游客可看）
   '/zhao-sso/v1/wx/qrcode',           // 公众号带参二维码（公开，供关注引导）
+  '/v1/my/point/share/visit',          // 分享裂变归因上报（公开，无需登录）
 ]
 
 function isPublicRoute(url: string): boolean {
@@ -676,12 +677,41 @@ export async function getPointStatistics() {
 }
 
 // 领取分享活动积分（每次 5 分、30 分钟一次、每日上限 4 次；超限抛错）
-export async function claimActivityShare() {
+export async function claimActivityShare(payload: { action?: string; channelId?: string | number; activityId?: string | number } = {}) {
   const res = await request('/zhao-point/v1/my/point/earn/share', {
     method: 'POST',
-    data: { action: 'activity_share', source: 'activity' },
+    data: {
+      action: payload.action || 'activity_share',
+      source: 'activity',
+      ...(payload.channelId != null ? { channelId: payload.channelId } : {}),
+      ...(payload.activityId != null ? { activityId: payload.activityId } : {}),
+    },
   })
   return res?.data ?? res
+}
+
+/**
+ * 分享裂变归因上报（公开接口，无需登录）
+ * 访客通过分享链接进入落地页时上报，用于 friend 点击归因。
+ * @payload { inviterId?, inviteCode?, targetType?, targetId?, attemptId? }
+ */
+export async function reportShareVisit(payload: {
+  inviterId?: string | number
+  inviteCode?: string
+  targetType?: string
+  targetId?: string | number
+  attemptId?: string
+}) {
+  const data: Record<string, any> = {}
+  if (payload.inviterId != null) data.inviterId = payload.inviterId
+  if (payload.inviteCode) data.inviteCode = payload.inviteCode
+  if (payload.targetType) data.targetType = payload.targetType
+  if (payload.targetId != null) data.targetId = payload.targetId
+  if (payload.attemptId) data.attemptId = payload.attemptId
+  return request('/v1/my/point/share/visit', {
+    method: 'POST',
+    data,
+  })
 }
 
 // 获取功能开关（公开，无需登录）

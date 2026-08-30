@@ -612,8 +612,9 @@ const showSharePoster = ref(false)
 async function onSharePosterClosed() {
   showSharePoster.value = false
   try {
-    await claimActivityShare()
-    uni.showToast({ title: '分享成功 +5积分', icon: 'none' })
+    const rec = await claimActivityShare({ activityId: id })
+    const pts = typeof rec?.points === 'number' ? rec.points : 5
+    uni.showToast({ title: `分享成功 +${pts}积分`, icon: 'none' })
   } catch (e) {
     // 冷却/上限/未登录/规则缺失时静默：不阻断查看海报
   }

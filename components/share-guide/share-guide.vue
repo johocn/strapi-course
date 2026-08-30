@@ -13,8 +13,13 @@
       </view>
 
       <view class="sg-actions">
+        <view class="sg-copy" v-if="props.linkType && props.linkType !== 'none' && props.linkTargetId" @click="copyLink">
+          <text>📋 复制分享链接</text>
+        </view>
+      </view>
+      <view class="sg-actions">
         <view class="sg-btn cancel" @click="close">取消</view>
-        <view class="sg-btn submit" @click="claim"><text>我已分享 · 领 5 积分</text></view>
+        <view class="sg-btn submit" @click="claim"><text>我已分享 · 领取积分</text></view>
       </view>
     </view>
   </view>
@@ -23,9 +28,19 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { claimActivityShare } from '../../services/api'
+import { buildShareLink } from '../../utils/invite'
 
-const props = defineProps<{ visible: boolean }>()
-const emit = defineEmits<{ (e: 'update:visible', v: boolean): void; (e: 'claimed'): void }>()
+const props = defineProps<{
+  visible: boolean
+  linkType?: string
+  linkTargetId?: string
+  linkTitle?: string
+}>()
+const emit = defineEmits<{
+  (e: 'update:visible', v: boolean): void
+  (e: 'claimed'): void
+  (e: 'goto', target: { linkType: string; linkTargetId: string }): void
+}>()
 const claiming = ref(false)
 
 const channels = [
@@ -35,14 +50,40 @@ const channels = [
 
 function close() { emit('update:visible', false) }
 
+function copyLink() {
+  const link = buildShareLink(props.linkType, props.linkTargetId)
+  if (!link) {
+    uni.showToast({ title: '该任务暂无可复制的分享链接', icon: 'none' })
+    return
+  }
+  uni.setClipboardData({
+    data: link,
+    success: () => {
+      uni.showToast({ title: '分享链接已复制', icon: 'none' })
+      // 复制成功即视为一次“转发完成”，触发领分
+      claim()
+    },
+    fail: () => uni.showToast({ title: '复制失败，请重试', icon: 'none' }),
+  })
+}
+
 async function claim() {
   if (claiming.value) return
   claiming.value = true
+  const targetType = props.linkType
+  const targetId = props.linkTargetId
+  // 活动类任务：把 linkTargetId 作为活动 id 传后端，按活动 shareRewardPoints 定价；非活动类走默认规则分
+  const activityId = targetType === 'activity' && targetId ? targetId : undefined
   try {
-    await claimActivityShare()
+    const rec = await claimActivityShare({ activityId })
     emit('claimed')
     close()
-    uni.showToast({ title: '+5 积分已到账', icon: 'none' })
+    const pts = typeof rec?.points === 'number' ? rec.points : 5
+    uni.showToast({ title: `+${pts} 积分已到账`, icon: 'none' })
+    // 领分成功且有分享目标 → 通知父组件跳转到对应内容页（父组件负责路由跳转）
+    if (targetType && targetType !== 'none' && targetId) {
+      emit('goto', { linkType: targetType, linkTargetId: targetId })
+    }
   } catch (e: any) {
     const msg = (e as any)?.response?.data?.error || (e as any)?.message || '领取失败'
     uni.showToast({ title: msg, icon: 'none', duration: 2000 })
@@ -65,6 +106,7 @@ async function claim() {
 .sg-arrow { font-size: 18rpx; color: #667eea; background: #eef0ff; padding: 6rpx 12rpx; border-radius: 30rpx; margin-top: 20rpx; text-align: center; }
 .sg-channel-name { font-size: 28rpx; color: #333; font-weight: 500; }
 .sg-actions { display: flex; gap: 20rpx; margin-top: 28rpx; }
+.sg-copy { flex: 1; text-align: center; padding: 24rpx; border-radius: 44rpx; font-size: 30rpx; background: #f0f4ff; color: #667eea; font-weight: 500; }
 .sg-btn { flex: 1; text-align: center; padding: 24rpx; border-radius: 44rpx; font-size: 30rpx; }
 .sg-btn.cancel { background: #f0f0f0; color: #666; }
 .sg-btn.submit { background: linear-gradient(135deg,#667eea,#764ba2); color: #fff; }
