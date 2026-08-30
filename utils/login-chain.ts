@@ -14,15 +14,27 @@ export function shouldUseSso(config: AuthConfig | null | undefined): boolean {
 }
 
 /**
- * 构建 SSO 跳转 URL（携带 app_code / return_url / c_end_url / 邀请码）
+ * 构建 SSO 页面跳转 URL（携带 app_code / return_url / c_end_url / 邀请码）
  * H5 环境专用；非 H5 环境返回空串
+ * @param page 目标 SSO 页面：'login'（登录页，默认）| 'register'（注册页）
+ *
+ * ssoLoginUrl 约定指向 SSO 登录页（形如 https://h.joho.cn/#/pages/sso/login），
+ * C 端 return_url/c_end_url 均指向自身 auth-callback，SSO 认证完成后携带 token 回跳写入登录态。
  */
-export function buildSsoRedirectUrl(config: AuthConfig | null | undefined): string {
+export function buildSsoPageUrl(
+  config: AuthConfig | null | undefined,
+  page: 'login' | 'register' = 'login'
+): string {
   const ssoUrl = config?.ssoLoginUrl
   if (!ssoUrl) return ''
   // #ifdef H5
-  // return_url 和 c_end_url 都指向 C 端 auth-callback 页面
-  // SSO 认证完成后，login-callback.vue 直接携带 token 跳回 C 端 auth-callback 写入登录态
+  // 注册页与登录页同址，替换路径段；若 ssoLoginUrl 非登录页格式则无法推导，返回空串
+  let base = ssoUrl
+  if (page === 'register') {
+    base = ssoUrl.replace('/pages/sso/login', '/pages/sso/register')
+    if (base === ssoUrl) return ''
+  }
+
   const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
   const params = new URLSearchParams({
     app_code: config?.ssoAppCode || 'course',
@@ -34,10 +46,20 @@ export function buildSsoRedirectUrl(config: AuthConfig | null | undefined): stri
   const channelInvite = uni.getStorageSync('channelInviteCode') || ''
   if (userInviteCode) params.append('invite_code', userInviteCode)
   if (channelInvite) params.append('channel_code', channelInvite)
-  const sep = ssoUrl.includes('?') ? '&' : '?'
-  return `${ssoUrl}${sep}${params.toString()}`
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}${params.toString()}`
   // #endif
   // #ifndef H5
   return ''
   // #endif
+}
+
+/** 构建 SSO 登录页跳转 URL */
+export function buildSsoRedirectUrl(config: AuthConfig | null | undefined): string {
+  return buildSsoPageUrl(config, 'login')
+}
+
+/** 构建 SSO 注册页跳转 URL（注册并入 SSO 时使用） */
+export function buildSsoRegisterUrl(config: AuthConfig | null | undefined): string {
+  return buildSsoPageUrl(config, 'register')
 }

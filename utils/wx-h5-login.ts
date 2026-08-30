@@ -101,12 +101,21 @@ export async function handleH5WechatCallback(code: string, scope?: string): Prom
 
 /**
  * 获取当前页面路径（用于 state 参数）
+ * 必须携带当前页面的 query 参数（如 /pages/activity/detail?id=xxx），
+ * 否则微信授权回调后 state 丢失 id，导致报名/权益引导流程无法续接。
  */
 function getCurrentPagePath(): string {
   const pages = getCurrentPages()
   if (pages.length > 0) {
-    const currentPage = pages[pages.length - 1]
-    return '/' + currentPage.route
+    const currentPage = pages[pages.length - 1] as any
+    const route = '/' + currentPage.route
+    const options = currentPage.options || currentPage.$page?.options || {}
+    const keys = Object.keys(options)
+    const query = keys
+      .filter((k) => options[k] != null && options[k] !== '')
+      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(options[k]))}`)
+      .join('&')
+    return query ? `${route}?${query}` : route
   }
   return '/pages/index/index'
 }

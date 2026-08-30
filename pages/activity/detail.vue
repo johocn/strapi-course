@@ -431,24 +431,7 @@
           </view>
         </template>
 
-        <!-- Step5 确认报名（积分明细 + 权益） -->
-        <template v-else-if="guideStep === 'confirm'">
-          <text class="guide-tip">确认报名后，将获得以下积分：</text>
-          <view class="points-preview">
-            <view v-for="item in pointsPreviewList" :key="item.key" class="points-item">
-              <text class="points-item-name">{{ item.name }}</text>
-              <text class="points-item-val">+{{ item.points }}</text>
-            </view>
-          </view>
-          <view v-for="g in unwrapGrantedPreview" :key="g.id" class="signup-field reward-item">
-            <text class="reward-name">{{ g.name }}</text>
-          </view>
-          <view class="guide-actions">
-            <view class="signup-btn cancel" @click="showGuide = false"><text>取消</text></view>
-            <view class="signup-btn submit" @click="confirmGuideSignup"><text>确认报名</text></view>
-          </view>
-        </template>
-      </view>
+        </view>
     </view>
 
     <!-- 报名前「报名奖励」清单弹层（必得区 + 解锁区） -->
@@ -465,35 +448,36 @@
 
         <!-- 必得区：无条件权益/积分（condition none / resolveCondition null） -->
         <template v-if="previewMustGetRewards.length">
-          <text class="reward-preview-sec-title">
-            必得区
-            <text class="reward-preview-hint">确认报名即得</text>
-          </text>
-          <view v-for="r in previewMustGetRewards" :key="r.id" class="reward-preview-row must">
-            <text class="reward-preview-lock ok">✓</text>
-            <view class="reward-preview-main">
-              <text class="reward-preview-name">{{ r.name }}</text>
+          <text class="reward-preview-sec-title">必得区<text class="reward-preview-hint">确认报名即得</text></text>
+          <view class="rpc-grid">
+            <view v-for="r in previewMustGetRewards" :key="r.id" class="rpc-card must">
+              <text class="rpc-ico" :class="'ic-' + rewardIcoClass(r)">{{ rewardIcon(r) }}</text>
+              <text class="rpc-name">{{ r.name }}</text>
+              <text class="rpc-meta" v-if="r.type !== 'points'">{{ rewardMeta(r) }}</text>
+              <view class="rpc-row">
+                <text class="rpc-state ok">必得</text>
+                <text class="rpc-val" v-if="r.points">+{{ r.points }}</text>
+              </view>
             </view>
-            <text class="reward-preview-val" v-if="r.points">+{{ r.points }}</text>
           </view>
         </template>
 
         <!-- 解锁区：带条件权益（锁头 + 条件标注 + selectMode 提示） -->
         <template v-if="previewUnlockRewards.length">
-          <text class="reward-preview-sec-title">
-            解锁区
-            <text class="reward-preview-hint">{{ previewSelectHint }}</text>
-          </text>
-          <view v-for="r in previewUnlockRewards" :key="r.id" class="reward-preview-row"
-            :class="{ locked: !r.unlocked, done: r.unlocked }">
-            <text class="reward-preview-lock" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '✓' : '🔒' }}</text>
-            <view class="reward-preview-main">
-              <text class="reward-preview-name">{{ r.name }}</text>
-              <text class="reward-preview-cond" v-if="rewardCondText(r)">{{ rewardCondText(r) }}</text>
-            </view>
-            <view class="reward-preview-right">
-              <text class="reward-preview-state" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '可领取' : '去解锁' }}</text>
-              <text class="reward-preview-val" v-if="r.points">+{{ r.points }}</text>
+          <text class="reward-preview-sec-title unlock">解锁区<text class="reward-preview-hint">{{ previewSelectHint }}</text></text>
+          <view class="rpc-grid">
+            <view v-for="r in previewUnlockRewards" :key="r.id" class="rpc-card"
+              :class="{ locked: !r.unlocked, done: r.unlocked }" @click="togglePreviewExpand(r.id)">
+              <text class="rpc-lock" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '✓' : '🔒' }}</text>
+              <text class="rpc-ico" :class="'ic-' + rewardIcoClass(r)">{{ rewardIcon(r) }}</text>
+              <text class="rpc-name">{{ r.name }}</text>
+              <text class="rpc-meta" v-if="rewardMeta(r).length">{{ rewardMeta(r) }}</text>
+              <text class="rpc-cond" v-if="rewardCondText(r)">{{ rewardCondText(r) }}</text>
+              <text class="rpc-expand" v-if="previewExpandId === r.id && r.meta">{{ r.meta }}</text>
+              <view class="rpc-row">
+                <text class="rpc-state" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '可领取' : '去解锁' }}</text>
+                <text class="rpc-val" v-if="r.points">+{{ r.points }}</text>
+              </view>
             </view>
           </view>
         </template>
@@ -677,9 +661,9 @@ const questionnaireStep = ref(0)
 const showRewardPreview = ref(false)
 const rewardPreviewData = ref<any>(null)   // unlockCheck 返回结果
 
-/** 是否无条件（condition none / resolveCondition null）→ 归入必得区 */
+/** 是否无条件（condition 为 none/空）→ 归入必得区；其余带条件进解锁区 */
 function rewardIsUnconditional(r: any): boolean {
-  return !r?.condition || r.condition === 'none' || r.resolveCondition == null
+  return !r?.condition || r.condition === 'none'
 }
 
 /** 条件类型 → 条件标注文案 */
@@ -719,6 +703,36 @@ const previewSelectHint = computed(() => {
 })
 
 const hasRewardPreview = computed(() => previewMustGetRewards.value.length > 0 || previewUnlockRewards.value.length > 0)
+
+const previewExpandId = ref<string | null>(null)
+const typeLabelMap: Record<string, string> = {
+  points: '积分', coupon: '优惠券', course_trial: '试听课程', course_outline: '课时/大纲', article: '文章',
+}
+/** 权益图标：统一用文字徽标（emoji 在 Windows 桌面不显示字体，改用色彩块+类型字，跨端可靠） */
+function rewardIcon(r: any): string {
+  switch ((r?.type || '').toLowerCase()) {
+    case 'points': return '分'
+    case 'coupon': return '券'
+    case 'course_trial': return '课'
+    case 'course_outline': return r?.kind === 'lesson' ? '课' : '纲'
+    case 'article': return '文'
+    default: return '益'
+  }
+}
+/** 图标徽标配色类 */
+function rewardIcoClass(r: any): string {
+  switch ((r?.type || '').toLowerCase()) {
+    case 'points': return 'pts'
+    case 'coupon': return 'coup'
+    case 'course_trial': return 'ctr'
+    case 'course_outline': return r?.kind === 'lesson' ? 'ctr' : 'cou'
+    case 'article': return 'art'
+    default: return 'def'
+  }
+}
+function typeTag(r: any): string { return typeLabelMap[(r?.type || '').toLowerCase()] || '权益' }
+function rewardMeta(r: any): string { return (r?.meta && r.meta !== r?.name) ? r.meta : typeTag(r) }
+function togglePreviewExpand(id: string) { previewExpandId.value = previewExpandId.value === id ? null : id }
 
 // ---- 报名后「领取更多权益」卡片区 ----
 const unlockCtx = ref<any>(null)            // getSignupUnlockStatus 结果
@@ -806,25 +820,6 @@ const unlockedRewards = computed(() => {
 })
 
 const multiRewards = computed(() => unlockedRewards.value.filter((r: any) => r.mode === 'multi'))
-
-// 分级积分预览：单一来源取后端 unlockCheck.pointsPreview；接口异常降级固定兜底值
-const FALLBACK_POINTS = { base: 5, auth: 5, contact: 20, survey: 50, subscribe: 50 }
-const pointsPreview = computed(() => {
-  const p = unlockStatus.value?.pointsPreview
-  if (p && typeof p === 'object' && typeof p.total === 'number') return p
-  return { ...FALLBACK_POINTS, total: Object.values(FALLBACK_POINTS).reduce((a: number, b: number) => a + b, 0) }
-})
-const pointsPreviewList = computed(() => {
-  const p = pointsPreview.value
-  const items = [
-    { key: 'base', name: '报名基础积分', points: p.base },
-    { key: 'auth', name: '微信授权登录', points: p.auth },
-    { key: 'contact', name: '完善联系方式', points: p.contact },
-    { key: 'survey', name: '回答问卷', points: p.survey },
-    { key: 'subscribe', name: '关注公众号', points: p.subscribe },
-  ]
-  return items.filter(i => Number(i.points) > 0)
-})
 
 // 信息步：有报名表单(电话)或问卷且对应项未填才需要。
 // 姓名/手机号/问卷目的是搜集信息，仅浏览器（非微信）环境必填；
@@ -934,22 +929,34 @@ function saveFollowQrcode() {
   // #endif
 }
 
-/** 线性向导下一步：login → info → follow → reward(有权益才展示) → confirm */
+/** 线性向导下一步：login → info → follow → reward(有权益才展示) → 走完即报名（不再二次确认） */
 function resolveNextStep(): string {
   if (needsInfo.value) return 'info'
   if (showFollowStep.value) return 'follow'
   if (unlockedRewards.value.length) return 'reward'
-  return 'confirm'
+  return ''
 }
 function resolveGuideStep(): string {
   if (!loginAuth.value) return 'login'
   return resolveNextStep()
 }
 
+/** 推进引导下一步；已无剩余步骤（info/follow/reward 均无）则直接报名（不做二次确认） */
+function goNextGuide() {
+  const step = resolveNextStep()
+  if (step) guideStep.value = step
+  else confirmGuideSignup()
+}
+function goGuideOrSignup() {
+  const step = resolveGuideStep()
+  if (step) guideStep.value = step
+  else confirmGuideSignup()
+}
+
 /** 静默/跳过登录：跳过登录对比步，继续后续 info/follow/reward */
 function chooseSilentLogin() {
   loginAuth.value = false
-  guideStep.value = resolveNextStep()
+  goNextGuide()
 }
 
 async function chooseAuthLogin() {
@@ -962,7 +969,7 @@ async function chooseAuthLogin() {
     // 已登录（SSO 会话在）：无需再往返 SSO，直接重探测解锁状态，避免 auth-callback 跳首页把用户弹走
     if (getToken()) {
       await refreshUnlockStatus()
-      guideStep.value = resolveGuideStep()
+      goGuideOrSignup()
       return
     }
     const ssoUrl = buildSsoPageUrl(authConfig, 'login')
@@ -981,14 +988,14 @@ async function chooseAuthLogin() {
 
 /** 信息步进完成：重新评估下一步（可能仍需 info） */
 function continueInfo() {
-  guideStep.value = resolveNextStep()
+  goNextGuide()
 }
 
 /** 关注公众号通道：重测订阅状态（微信事件回调已写库，刷新即可）；已关注则发关注积分并推进 */
 async function refreshSubscribeStatus() {
   await refreshUnlockStatus()
   if (subscribed.value) {
-    guideStep.value = resolveNextStep()
+    goNextGuide()
     uni.showToast({ title: '已关注，+50积分', icon: 'none' })
   } else {
     uni.showToast({ title: '暂未检测到关注，请关注后再试', icon: 'none' })
@@ -1006,13 +1013,6 @@ function toggleGuideReward(r: any) {
   else if (mode === 'any') { if (chosenRewards.value.length < n) chosenRewards.value.push(r.id) }
   else chosenRewards.value.push(r.id)
 }
-
-/** 确认页预览：已选定（单选自动 + 多选已勾选）的奖励 */
-const unwrapGrantedPreview = computed(() => {
-  const singles = unlockedRewards.value.filter((r: any) => r.mode !== 'multi')
-  const multi = unlockedRewards.value.filter((r: any) => r.mode === 'multi' && chosenRewards.value.includes(r.id))
-  return [...singles, ...multi]
-})
 
 function confirmGuideSignup() {
   const formData = { ...signupData.value }
@@ -1176,7 +1176,7 @@ function submitQuestionnaire() {
   const filled = surveyFilledValue()
   showQuestionnaire.value = false
   uni.showToast({ title: filled ? '问卷已记录' : '本次跳过问卷', icon: 'none' })
-  guideStep.value = resolveNextStep()
+  goNextGuide()
 }
 
 /** 补填问卷：提交后重算解锁并幂等发放新增 multi 权益（pre 驱动解锁/积分；post 仅记录反馈） */
@@ -2561,6 +2561,8 @@ onUnmounted(() => {
   padding-left: 16rpx;
   border-left: 6rpx solid #667eea;
 }
+/* 解锁区标题用橙色描边，与必得区（紫）区分 */
+.reward-preview-sec-title.unlock { border-left-color: #fa8c16; }
 .reward-preview-hint { font-size: 22rpx; font-weight: 400; color: #fa8c16; }
 .reward-preview-row {
   display: flex; align-items: center; gap: 16rpx;
@@ -2575,6 +2577,36 @@ onUnmounted(() => {
 .reward-preview-right { display: flex; align-items: center; gap: 12rpx; flex-shrink: 0; }
 .reward-preview-state { font-size: 22rpx; padding: 4rpx 14rpx; border-radius: 999rpx; &.ok { color: #389e0d; background: #f0ffe4; } &.todo { color: #fa8c16; background: #fff3e0; } }
 .reward-preview-val { font-size: 28rpx; font-weight: 700; color: #fa8c16; flex-shrink: 0; }
+
+.rpc-grid { display: flex; flex-wrap: wrap; gap: 20rpx;
+  .rpc-card { position: relative; width: calc(50% - 10rpx); box-sizing: border-box; background: #f7f8fa;
+    border: 1rpx solid #eceef1; border-radius: 16rpx; padding: 20rpx; display: flex; flex-direction: column;
+    align-items: flex-start; gap: 6rpx;
+    &.must { background: linear-gradient(135deg, #667eea, #764ba2); border: none; }
+    &.must .rpc-name, &.must .rpc-val, &.must .rpc-meta { color: #fff; }
+    &.must .rpc-state.ok { color: #fff; background: rgba(255,255,255,.24); }
+    &.locked { opacity: .88; }
+    &.done { background: #f0f9f4; border-color: #cdeedb; }
+  }
+  /* 图标徽标：色彩块 + 类型字，替代 emoji（Windows 桌面不显示 emoji 字体） */
+  .rpc-ico { width: 44rpx; height: 44rpx; border-radius: 10rpx; display: flex; align-items: center; justify-content: center;
+    font-size: 24rpx; font-weight: 600; color: #fff; line-height: 1; flex-shrink: 0;
+    &.ic-pts { background: linear-gradient(135deg, #f6b93b, #e58e26); }
+    &.ic-coup { background: linear-gradient(135deg, #ff6b6b, #ee5253); }
+    &.ic-ctr { background: linear-gradient(135deg, #48dbfb, #0abde3); }
+    &.ic-cou { background: linear-gradient(135deg, #5f27cd, #341f97); }
+    &.ic-art { background: linear-gradient(135deg, #1dd1a1, #10ac84); }
+    &.ic-def { background: linear-gradient(135deg, #8395a7, #576574); }
+  }
+  .rpc-lock { position: absolute; top: 16rpx; right: 16rpx; font-size: 26rpx; &.todo { color: #fa8c16; } &.ok { color: #52c41a; } }
+  .rpc-name { font-size: 26rpx; font-weight: 500; color: #333; width: 100%; box-sizing: border-box; padding-right: 52rpx; }
+  .rpc-meta { font-size: 20rpx; color: #666; }
+  .rpc-cond { font-size: 20rpx; color: #a06a1a; background: #fff7e6; border-radius: 6rpx; padding: 2rpx 10rpx; }
+  .rpc-state { font-size: 20rpx; padding: 2rpx 12rpx; border-radius: 999rpx; &.ok { color: #389e0d; background: #e6f7e6; } &.todo { color: #b26a00; background: #fff7e6; } }
+  .rpc-val { font-size: 26rpx; font-weight: 700; color: #fa8c16; }
+  .rpc-row { width: 100%; display: flex; justify-content: flex-end; align-items: center; gap: 12rpx; }
+  .rpc-expand { width: 100%; font-size: 22rpx; color: #444; background: #f0f2f5; border-radius: 8rpx; padding: 10rpx 12rpx; box-sizing: border-box; }
+}
 
 .assets-card { padding: 30rpx; }
 .assets-title { display: block; font-size: 28rpx; font-weight: 600; color: #333; margin-bottom: 20rpx; }

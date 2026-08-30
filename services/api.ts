@@ -1,6 +1,8 @@
 // API 接口定义 - 后端统一返回 { data, meta } 格式
 import { getToken, removeToken, removeUser, setPoints } from '../utils/storage'
 import { BASE_API, SITE_DOMAIN } from '../utils/env'
+import { getStoredAuthConfig } from './auth-config'
+import { shouldUseSso, buildSsoRedirectUrl } from '../utils/login-chain'
 import {
   buildCourseQuery,
   stringifyQuery,
@@ -49,7 +51,17 @@ function isPublicRoute(url: string): boolean {
 
 let isHandlingUnauthorized = false
 
+/** H5 当前 hash 路径（不含 query）；非 H5 返回空串 */
+function currentH5Path(): string {
+  if (typeof window === 'undefined') return ''
+  return (window.location.hash || '').replace(/^#/, '').split('?')[0] || ''
+}
+
 function handleUnauthorized() {
+  // 授权/SSO 回调页：token 正在由回调节点写回，此时绝不弹提示或跳登录页，否则会打断回跳形成死循环
+  const path = currentH5Path()
+  if (path.startsWith('/pages/auth-callback/auth-callback')) return
+
   removeToken()
   removeUser()
   setPoints(0)
@@ -58,6 +70,21 @@ function handleUnauthorized() {
   uni.removeStorageSync('inviteCode')
   uni.removeStorageSync('channelInviteCode')
   uni.removeStorageSync('wxAuthAppType')
+
+  // SSO 模式：跳 SSO 登录（而非内部登录页），避免与 App.vue 自动跳转打架导致“反复弹登录框”
+  let ssoUrl = ''
+  try {
+    const cfg = getStoredAuthConfig()
+    if (shouldUseSso(cfg)) ssoUrl = buildSsoRedirectUrl(cfg)
+  } catch (e) {
+    ssoUrl = ''
+  }
+  if (ssoUrl) {
+    console.log('[request] 未登录，SSO 跳转', ssoUrl)
+    window.location.href = ssoUrl
+    return
+  }
+
   uni.showToast({ title: '请先登录', icon: 'none', duration: 1500 })
   setTimeout(() => {
     uni.reLaunch({ url: '/pages/login/login' })
@@ -180,7 +207,12 @@ export async function request(url: string, options: any = {}) {
 
   // 非公开路由必须有 token
   if (!token && !isPublicRoute(url)) {
-    handleUnauthorized()
+    // 并发页面加载会同时触发多个受保护请求，只处理一次登录态，避免“反复弹登录框”
+    if (!isHandlingUnauthorized) {
+      isHandlingUnauthorized = true
+      handleUnauthorized()
+      setTimeout(() => { isHandlingUnauthorized = false }, 2500)
+    }
     throw new Error('未登录')
   }
 
@@ -281,6 +313,14 @@ export async function updateThirdPartyProfile(platform: string, appType: string,
   return request('/zhao-third/v1/third/profile/update', {
     method: 'POST',
     data: { platform, appType, nickname, avatar },
+  })
+}
+
+/** 自助修改当前 SSO 用户昵称（个人中心入口） */
+export async function updateUserProfile(nickname: string) {
+  return request('/zhao-sso/v1/user/profile', {
+    method: 'POST',
+    data: { nickname },
   })
 }
 
@@ -943,14 +983,14 @@ export async function getActivityFee(documentId: string) {
 /**
  * 报名活动（需登录）
  * @param chosenRewards 客户自选的 multi 奖励 id 列表（可选）
- * @param questionnaireData 选填问卷答案（可选）
+ * @param preQuestionnaireData 活动前问卷答案（可选，报名时即提交）
  * @returns { ok: true, signupId?, granted?: [{id,type,name,message,link?}], unlockInfo? } 报名成功；{ ok: true, waitlisted: true, position } 候补；{ ok: false, reason: 'already_signed_up' } 已报名
  */
 export async function signupActivity(
   activityId: string,
   formData?: Record<string, any>,
   chosenRewards?: string[],
-  questionnaireData?: Record<string, any>,
+  preQuestionnaireData?: Record<string, any>,
 ) {
   const res = await request('/zhao-point/v1/my/activity/signup', {
     method: 'POST',
@@ -958,7 +998,7 @@ export async function signupActivity(
       activityId,
       ...(formData && Object.keys(formData).length ? { formData } : {}),
       ...(chosenRewards?.length ? { chosenRewards } : {}),
-      ...(questionnaireData && Object.keys(questionnaireData).length ? { questionnaireData } : {}),
+      ...(preQuestionnaireData && Object.keys(preQuestionnaireData).length ? { preQuestionnaireData } : {}),
     },
   })
   return res?.data ?? res
@@ -966,41 +1006,75 @@ export async function signupActivity(
 
 /**
  * 补填问卷（需登录，signupId 来自报名响应）
+ * @param type pre=活动前问卷（报名后可填，驱动 survey 解锁/积分，默认）；post=活动后问卷（需签到且活动结束后，仅记录反馈）
  * @returns { ok, unlockInfo, newlyUnlocked } 已解锁的新权益列表
  */
-export async function fillQuestionnaire(signupId: number, answers: Record<string, any>) {
+export async function fillQuestionnaire(signupId: number, answers: Record<string, any>, type: 'pre' | 'post' = 'pre') {
   const res = await request(`/zhao-point/v1/my/activity/signup/${signupId}/questionnaire`, {
     method: 'PUT',
-    data: { answers },
+    data: { answers, type },
   })
   return res?.data ?? res
 }
 
 /**
+ * 补填联系方式（需登录，signupId 来自报名响应）
+ * @returns { ok, unlockInfo, newlyUnlocked, newlyContact } 新达成联系方式时 newlyContact=true
+ */
+export async function fillActivityContact(signupId: number, formData: Record<string, any>) {
+  const res = await request(`/zhao-point/v1/my/activity/signup/${signupId}/contact`, {
+    method: 'PUT',
+    data: { formData },
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 补领关注公众号（需登录）
+ * @returns { ok, subscribed, unlockInfo, newlyUnlocked } subscribed=false 表示未关注
+ */
+export async function claimActivitySubscribe(signupId: number) {
+  const res = await request(`/zhao-point/v1/my/activity/signup/${signupId}/subscribe`, {
+    method: 'PUT',
+  })
+  return res?.data ?? res
+}
+
+/**
+ * 报名后权益状态（需登录，卡片区三态渲染）
+ * @returns { ok, contactDone, surveyDone, loginAuth, subscribed, rewards: [{id,name,mode,condition,unlocked}] , pointsPreview }
+ */
+export async function getSignupUnlockStatus(signupId: number) {
+  const res = await request(`/zhao-point/v1/my/activity/signup/${signupId}/unlock-status`)
+  return res?.data ?? res
+}
+
+/**
  * 解锁状态探测（需登录，报名前/关注后刷新）
+ * @param preQuestionnaireData 活动前问卷答案（可选）
  * @returns { loginAuth, subscribed, channel, conditions, channelDone, selectMode, selectN, rewards: [{id,name,type,mode,condition,unlocked}] }
  */
 export async function unlockCheck(
   activityId: string,
   formData?: Record<string, any>,
-  questionnaireData?: Record<string, any>,
+  preQuestionnaireData?: Record<string, any>,
 ) {
   const res = await request(`/zhao-point/v1/my/activity/${activityId}/unlock-check`, {
     method: 'POST',
     data: {
       ...(formData && Object.keys(formData).length ? { formData } : {}),
-      ...(questionnaireData && Object.keys(questionnaireData).length ? { questionnaireData } : {}),
+      ...(preQuestionnaireData && Object.keys(preQuestionnaireData).length ? { preQuestionnaireData } : {}),
     },
   })
   return res?.data ?? res
 }
 
 /**
- * 公众号关注二维码（公开，微信环境报名引导 Step3 使用）
+ * 公众号关注临时带参二维码（需登录，按用户缓存复用）
  * @returns { wx_url } 二维码图片地址；未配置公众号时返回 { wx_url: null }
  */
 export async function getActivityFollowQrcode(activityId: string) {
-  const res = await request(`/zhao-sso/v1/wx/qrcode?scene=act_follow:${activityId}`, { method: 'GET' })
+  const res = await request(`/zhao-point/v1/my/activity/${activityId}/follow-qrcode`, { method: 'GET' })
   return res?.data ?? res
 }
 

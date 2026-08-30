@@ -22,7 +22,10 @@
           <text>{{ userInfo.nickname?.charAt(0) ?? '用' }}</text>
         </view>
         <view class="user-info">
-          <text class="user-name">{{ userInfo.nickname ?? '用户' }}</text>
+          <view class="name-row">
+            <text class="user-name">{{ userInfo.nickname ?? '用户' }}</text>
+            <view class="edit-nick-btn" @click.stop="openNicknameEdit"><text>✎</text></view>
+          </view>
           <text class="user-id">ID: {{ userInfo.id ?? '****' }}</text>
         </view>
       </view>
@@ -215,6 +218,30 @@
       <text class="info-desc">每日答题获得积分上限为3次</text>
     </view>
 
+    <!-- 修改昵称弹窗 -->
+    <view v-if="showNicknameModal" class="modal-mask" @click.self="showNicknameModal = false">
+      <view class="modal-content">
+        <view class="modal-header">
+          <text class="modal-title">修改昵称</text>
+          <view class="modal-close" @click="showNicknameModal = false">
+            <text>✕</text>
+          </view>
+        </view>
+
+        <view class="form-item">
+          <input class="form-input" v-model="nicknameDraft" type="text" placeholder="请输入昵称（1-30字）"
+            maxlength="30" :focus="true" />
+        </view>
+
+        <view :class="['modal-login-btn', { disabled: !canSaveNickname }]" @click="saveNickname">
+          <text>保存</text>
+        </view>
+        <view class="modal-tips">
+          <text class="tip-text">授权登录自动同步失败时，可在此手动设置昵称</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 登录/注册弹窗 -->
     <view v-if="showLoginModal" class="modal-mask" @click.self="showLoginModal = false">
       <view class="modal-content">
@@ -279,7 +306,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getPointBalance, getInviteStats, getPointFeatureFlags, getSignInStatus, getPointStatistics, login, loginWithPassword, myNotices } from '../../services/api'
+import { getPointBalance, getInviteStats, getPointFeatureFlags, getSignInStatus, getPointStatistics, login, loginWithPassword, myNotices, updateUserProfile } from '../../services/api'
 import { getUser, setToken, setUser, setLoginState, getToken } from '../../utils/storage'
 import { onLogout, validateLogin, isGuest as checkIsGuest } from '../../utils/auth'
 import { showShareGuide } from '../../utils/invite'
@@ -333,6 +360,56 @@ const invitePoints = ref(0)
 const featureFlags = ref({ signInEnabled: false, tasksEnabled: false, redemptionEnabled: true, moduleEnabled: true })
 const signInStatus = ref<any>({ isSignedInToday: false, streakDays: 0 })
 const unreadCount = ref(0)
+
+// ---- 修改昵称 ----
+const showNicknameModal = ref(false)
+const nicknameDraft = ref('')
+const savingNickname = ref(false)
+const canSaveNickname = computed(() => {
+  const v = nicknameDraft.value.trim()
+  return v.length >= 1 && v.length <= 30 && v !== (userInfo.value.nickname || '') && !savingNickname.value
+})
+
+function openNicknameEdit() {
+  if (guestMode.value) return
+  nicknameDraft.value = userInfo.value.nickname || ''
+  showNicknameModal.value = true
+}
+
+async function saveNickname() {
+  const name = nicknameDraft.value.trim()
+  if (!name || name.length > 30) {
+    uni.showToast({ title: '昵称需为 1-30 字', icon: 'none' })
+    return
+  }
+  savingNickname.value = true
+  try {
+    const res: any = await updateUserProfile(name)
+    const updated = (res as any)?.data ?? res
+    // 同步本地存储（nickname/name 双写，保证各展示位一致）
+    const user = getUser() || {}
+    const merged = {
+      ...user,
+      ...(updated && typeof updated === 'object' ? updated : {}),
+      nickname: name,
+      name: name,
+    }
+    setUser(merged)
+    userInfo.value = {
+      ...userInfo.value,
+      id: String(merged.id ?? userInfo.value.id ?? ''),
+      nickname: merged.nickname || merged.name || '用户',
+      avatar: merged.avatar ?? userInfo.value.avatar ?? '',
+      phone: merged.phone ?? userInfo.value.phone ?? ''
+    }
+    showNicknameModal.value = false
+    uni.showToast({ title: '昵称已更新', icon: 'success' })
+  } catch (e: any) {
+    uni.showToast({ title: e?.error?.message ?? '昵称修改失败', icon: 'none' })
+  } finally {
+    savingNickname.value = false
+  }
+}
 
 async function loadUnread() {
   if (!getToken()) return
@@ -650,6 +727,27 @@ onUnmounted(() => {
 
 .user-info {
   margin-left: 30rpx;
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.edit-nick-btn {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-nick-btn text {
+  font-size: 26rpx;
+  color: #fff;
 }
 
 .user-name {
