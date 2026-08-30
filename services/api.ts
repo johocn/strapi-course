@@ -675,6 +675,15 @@ export async function getPointStatistics() {
   return res?.data ?? res
 }
 
+// 领取分享活动积分（每次 5 分、30 分钟一次、每日上限 4 次；超限抛错）
+export async function claimActivityShare() {
+  const res = await request('/zhao-point/v1/my/point/earn/share', {
+    method: 'POST',
+    data: { action: 'activity_share', source: 'activity' },
+  })
+  return res?.data ?? res
+}
+
 // 获取功能开关（公开，无需登录）
 export async function getPointFeatureFlags() {
   const res = await request('/zhao-point/v1/point/feature-flags')
@@ -1108,6 +1117,15 @@ export async function checkinActivity(documentId: string, data: { method: string
  */
 export async function myActivities() {
   const res = await request('/zhao-point/v1/my/activities')
+  return res?.data ?? res
+}
+
+/**
+ * 我的裂变：邀请人数 / 累计积分 / 按活动聚合明细（需登录）
+ * @returns { inviteeCount, totalPoints, activities: [{activity, inviteeCount, totalPoints}], details: [{activity, points, issuedAt}] }
+ */
+export async function myInvitation() {
+  const res = await request('/zhao-point/v1/my/invitation')
   return res?.data ?? res
 }
 
