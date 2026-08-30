@@ -145,9 +145,19 @@
         </view>
       </view>
 
-      <!-- 分享海报入口 -->
-      <view class="share-entry" @click="showSharePoster = true">
-        <text>分享海报</text>
+      <!-- 分享裂变入口 -->
+      <view class="share-row">
+        <view class="share-entry" @click="showSharePoster = true">
+          <text class="share-entry-title">分享海报</text>
+          <text class="share-entry-sub">生成专属邀请海报</text>
+        </view>
+        <view class="invite-entry" @click="goMyInvitation">
+          <text class="invite-entry-title">我的邀请</text>
+          <text class="invite-entry-sub">看邀请战绩</text>
+        </view>
+      </view>
+      <view v-if="shareTip" class="share-tip">
+        <text>{{ shareTip }}</text>
       </view>
 
       <!-- 报名成功后的到场二维码（worker_scan 模式） -->
@@ -199,25 +209,29 @@
             <text class="benefit-name">{{ c.name }}</text>
             <text class="benefit-desc">{{ c.desc }}</text>
           </view>
-          <text class="benefit-state" v-if="c.done">已领</text>
-          <text class="benefit-state go" v-else-if="c.locked">待解锁</text>
+          <text class="benefit-state done-tag" v-if="c.done">✓ 已领</text>
+          <text class="benefit-state wait-tag" v-else-if="c.locked">待解锁</text>
           <text class="benefit-state go" v-else-if="c.points">+{{ c.points }}</text>
           <text class="benefit-state go" v-else>去解锁</text>
         </view>
 
-        <!-- 联系方式内联补填 -->
-        <view v-if="showContactFill && formFields.length" class="benefit-inline">
-          <view v-for="f in formFields" :key="f.key" class="signup-field">
-            <text class="signup-label">{{ f.label }}<text v-if="f.required" class="req">*</text></text>
-            <input v-if="f.type === 'text' || f.type === 'phone'" class="signup-input"
-              v-model="contactForm[f.key]" :type="f.type === 'phone' ? 'number' : 'text'"
-              :placeholder="f.placeholder || ''" />
-            <textarea v-else-if="f.type === 'textarea'" class="signup-textarea" v-model="contactForm[f.key]" />
-            <input v-else-if="f.type === 'number'" class="signup-input" type="number" v-model="contactForm[f.key]" />
-          </view>
-          <view class="signup-actions">
-            <view class="signup-btn cancel" @click="showContactFill = false"><text>取消</text></view>
-            <view class="signup-btn submit" @click="submitBenefitContact"><text>提交</text></view>
+        <!-- 联系方式补填弹窗 -->
+        <view class="signup-mask" v-if="showContactFill" @click="showContactFill = false">
+          <view class="signup-panel benefit-contact-panel" @click.stop>
+            <text class="signup-title">完善联系方式</text>
+            <text class="benefit-inline-tip">补充联系方式可解锁 +20 积分及联系方式相关权益。</text>
+            <view v-for="f in formFields" :key="f.key" class="signup-field">
+              <text class="signup-label">{{ f.label }}<text v-if="f.required" class="req">*</text></text>
+              <input v-if="f.type === 'text' || f.type === 'phone'" class="signup-input"
+                v-model="contactForm[f.key]" :type="f.type === 'phone' ? 'number' : 'text'"
+                :placeholder="f.placeholder || ''" />
+              <textarea v-else-if="f.type === 'textarea'" class="signup-textarea" v-model="contactForm[f.key]" />
+              <input v-else-if="f.type === 'number'" class="signup-input" type="number" v-model="contactForm[f.key]" />
+            </view>
+            <view class="guide-actions">
+              <view class="signup-btn cancel" @click="showContactFill = false"><text>取消</text></view>
+              <view class="signup-btn submit" @click="submitBenefitContact"><text>提交</text></view>
+            </view>
           </view>
         </view>
 
@@ -236,14 +250,14 @@
         </view>
 
         <!-- +50 飘分动画 -->
-        <view v-if="floatText" class="benefit-float" :class="{ show: floatShow }">
-          <text class="benefit-float-text">+{{ floatText }} 积分已到账</text>
+        <view v-if="floatShow" class="benefit-float" :class="{ show: floatShow }">
+          <text class="benefit-float-text">{{ floatMsg }}</text>
         </view>
       </view>
 
       <!-- 报名成功且存在未解锁权益时的悬浮「领取权益」入口 -->
-      <view v-if="signedUp && signupId && showClaimBtn" class="claim-float" @click="scrollToBenefit">
-        <text class="claim-float-text">领取权益</text>
+      <view v-if="signedUp && signupId && claimBarVisible" class="claim-float" @click="scrollToBenefit">
+        <text class="claim-float-text">去领权益</text>
       </view>
     </view>
 
@@ -367,7 +381,7 @@
           </view>
         </template>
 
-        <!-- Step2 信息完善（联系方式+20 / 问卷+50，选填） -->
+        <!-- 浏览器环境第 3 步：信息完善（联系方式+20 / 问卷+50，选填；微信环境跳过） -->
         <template v-else-if="guideStep === 'info'">
           <text class="guide-tip">完善以下信息可获额外积分（选填）：联系方式 +20 · 问卷 +50</text>
           <view v-for="f in formFields" :key="f.key" class="signup-field">
@@ -400,99 +414,67 @@
           </view>
         </template>
 
-        <!-- Step3 关注公众号（+50 积分） -->
-        <template v-else-if="guideStep === 'follow'">
-          <text class="guide-tip">关注公众号额外获得 50 积分，并可接收活动提醒</text>
-          <view class="qrcode-container">
-            <image v-if="wxQrcodeUrl" :src="wxQrcodeUrl" class="qrcode-img" mode="aspectFit" />
-            <text v-else class="qrcode-placeholder">公众号二维码加载中...</text>
-          </view>
-          <text class="qrcode-hint">长按识别二维码关注公众号</text>
-          <view class="guide-actions">
-            <view class="signup-btn cancel" @click="showGuide = false"><text>跳过</text></view>
-            <view class="signup-btn submit" @click="refreshSubscribeStatus"><text>我已关注，刷新</text></view>
-          </view>
-        </template>
-
-        <!-- Step4 奖励菜单（有 rewardConfig 才展示） -->
+        <!-- Step2 报名奖励（必得区 + 解锁区，覆盖原独立清单弹窗） -->
         <template v-else-if="guideStep === 'reward'">
-          <text class="guide-tip">以下奖励已解锁{{ multiRewards.length ? '，可多选' : '' }}</text>
-          <view v-for="r in unlockedRewards" :key="r.id" class="signup-field reward-item"
-            @click="toggleGuideReward(r)">
-            <view class="reward-check" :class="{ on: chosenRewards.includes(r.id) }">
-              <text v-if="r.mode !== 'multi'" class="reward-auto">自动</text>
-              <text v-else>✓</text>
+          <text class="guide-tip">以下奖励可领取{{ multiRewards.length ? '，可多选' : '' }}</text>
+
+          <scroll-view scroll-y class="guide-reward-body">
+            <!-- 解锁通道：解锁区权益的共同达成前提 -->
+            <view class="reward-preview-channel" v-if="previewUnlockRewards.length && channelPreviewLabel">
+              <text class="reward-preview-channel-title">解锁通道</text>
+              <text class="reward-preview-channel-value">{{ channelPreviewLabel }}</text>
+              <text class="reward-preview-checked" v-if="rewardPreviewData?.channelDone">已达成</text>
             </view>
-            <text class="reward-name">{{ r.name }}</text>
-          </view>
+
+            <!-- 必得区：无条件权益/积分 -->
+            <template v-if="previewMustGetRewards.length">
+              <text class="reward-preview-sec-title">必得区<text class="reward-preview-hint">确认报名即得</text></text>
+              <view class="rpc-grid">
+                <view v-for="r in previewMustGetRewards" :key="r.id" class="rpc-card must">
+                  <text class="rpc-ico" :class="'ic-' + rewardIcoClass(r)">{{ rewardIcon(r) }}</text>
+                  <text class="rpc-name">{{ r.name }}</text>
+                  <text class="rpc-meta" v-if="r.type !== 'points'">{{ rewardMeta(r) }}</text>
+                  <view class="rpc-row">
+                    <text class="rpc-state ok">必得</text>
+                    <text class="rpc-val" v-if="r.points">+{{ r.points }}</text>
+                  </view>
+                </view>
+              </view>
+            </template>
+
+            <!-- 解锁区：带条件权益（锁头 + 条件标注 + selectMode 提示 + multi 勾选） -->
+            <template v-if="previewUnlockRewards.length">
+              <text class="reward-preview-sec-title unlock">解锁区<text class="reward-preview-hint">{{ previewSelectHint }}</text></text>
+              <view class="rpc-grid">
+                <view v-for="r in previewUnlockRewards" :key="r.id" class="rpc-card"
+                  :class="{ locked: !r.unlocked, done: r.unlocked }" @click="toggleGuideReward(r)">
+                  <text class="rpc-lock" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '✓' : '' }}</text>
+                  <text class="rpc-ico" :class="'ic-' + rewardIcoClass(r)">{{ rewardIcon(r) }}</text>
+                  <text class="rpc-name">{{ r.name }}</text>
+                  <text class="rpc-meta" v-if="rewardMeta(r).length">{{ rewardMeta(r) }}</text>
+                  <text class="rpc-cond" v-if="rewardCondText(r)">{{ rewardCondText(r) }}</text>
+                  <view class="rpc-row">
+                    <text class="rpc-state" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? (r.mode === 'multi' ? '勾选领取' : '自动领取') : '去解锁' }}</text>
+                    <text class="rpc-val" v-if="r.points">+{{ r.points }}</text>
+                  </view>
+                </view>
+              </view>
+            </template>
+          </scroll-view>
+
           <view class="guide-actions">
             <view class="signup-btn cancel" @click="showGuide = false"><text>取消</text></view>
-            <view class="signup-btn submit" @click="confirmGuideSignup"><text>{{ multiRewards.length ? '确认并报名' : '直接报名' }}</text></view>
+            <view class="signup-btn submit" @click="goNextGuide"><text>确认并报名</text></view>
           </view>
         </template>
 
         </view>
-    </view>
-
-    <!-- 报名前「报名奖励」清单弹层（必得区 + 解锁区） -->
-    <view class="signup-mask" v-if="showRewardPreview" @click="showRewardPreview = false">
-      <view class="signup-panel reward-preview-panel" @click.stop>
-        <text class="signup-title">报名奖励</text>
-
-        <!-- 解锁通道：解锁区权益的共同达成前提 -->
-        <view class="reward-preview-channel" v-if="previewUnlockRewards.length && channelPreviewLabel">
-          <text class="reward-preview-channel-title">解锁通道</text>
-          <text class="reward-preview-channel-value">{{ channelPreviewLabel }}</text>
-          <text class="reward-preview-checked" v-if="rewardPreviewData?.channelDone">已达成</text>
-        </view>
-
-        <!-- 必得区：无条件权益/积分（condition none / resolveCondition null） -->
-        <template v-if="previewMustGetRewards.length">
-          <text class="reward-preview-sec-title">必得区<text class="reward-preview-hint">确认报名即得</text></text>
-          <view class="rpc-grid">
-            <view v-for="r in previewMustGetRewards" :key="r.id" class="rpc-card must">
-              <text class="rpc-ico" :class="'ic-' + rewardIcoClass(r)">{{ rewardIcon(r) }}</text>
-              <text class="rpc-name">{{ r.name }}</text>
-              <text class="rpc-meta" v-if="r.type !== 'points'">{{ rewardMeta(r) }}</text>
-              <view class="rpc-row">
-                <text class="rpc-state ok">必得</text>
-                <text class="rpc-val" v-if="r.points">+{{ r.points }}</text>
-              </view>
-            </view>
-          </view>
-        </template>
-
-        <!-- 解锁区：带条件权益（锁头 + 条件标注 + selectMode 提示） -->
-        <template v-if="previewUnlockRewards.length">
-          <text class="reward-preview-sec-title unlock">解锁区<text class="reward-preview-hint">{{ previewSelectHint }}</text></text>
-          <view class="rpc-grid">
-            <view v-for="r in previewUnlockRewards" :key="r.id" class="rpc-card"
-              :class="{ locked: !r.unlocked, done: r.unlocked }" @click="togglePreviewExpand(r.id)">
-              <text class="rpc-lock" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '✓' : '🔒' }}</text>
-              <text class="rpc-ico" :class="'ic-' + rewardIcoClass(r)">{{ rewardIcon(r) }}</text>
-              <text class="rpc-name">{{ r.name }}</text>
-              <text class="rpc-meta" v-if="rewardMeta(r).length">{{ rewardMeta(r) }}</text>
-              <text class="rpc-cond" v-if="rewardCondText(r)">{{ rewardCondText(r) }}</text>
-              <text class="rpc-expand" v-if="previewExpandId === r.id && r.meta">{{ r.meta }}</text>
-              <view class="rpc-row">
-                <text class="rpc-state" :class="r.unlocked ? 'ok' : 'todo'">{{ r.unlocked ? '可领取' : '去解锁' }}</text>
-                <text class="rpc-val" v-if="r.points">+{{ r.points }}</text>
-              </view>
-            </view>
-          </view>
-        </template>
-
-        <view class="guide-actions">
-          <view class="signup-btn cancel" @click="showRewardPreview = false"><text>再想想</text></view>
-          <view class="signup-btn submit" @click="confirmRewardPreview"><text>确认报名</text></view>
-        </view>
-      </view>
     </view>
 
     <!-- 分享海报（复用通用 share-poster 组件） -->
     <share-poster
       :visible="showSharePoster"
-      @close="showSharePoster = false"
+      @close="onSharePosterClosed"
       :config="{
         templateCode: 'activity_share',
         title: activity?.title,
@@ -555,8 +537,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
+import { onShow, onPageScroll } from '@dcloudio/uni-app'
 import {
   getActivityDetail,
   signupActivity,
@@ -575,6 +557,7 @@ import {
   listActivities,
   fillActivityContact,
   claimActivitySubscribe,
+  claimActivityShare,
   getSignupUnlockStatus,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
@@ -624,6 +607,16 @@ const isFull = computed(() => {
 })
 const qrcodeUrl = ref('')
 const showSharePoster = ref(false)
+// 分享海报关闭时异步领一次分享积分（后端 activity_share：+5分，30分钟冷却，每日4次）
+// 冷却/上限/未登录时静默忽略，不阻断查看海报
+async function onSharePosterClosed() {
+  showSharePoster.value = false
+  try {
+    await claimActivityShare()
+  } catch (e) {
+    // 静默：冷却/上限/未登录时不提示
+  }
+}
 const showReview = ref(false)
 const reviewRating = ref(0)
 const reviewNps = ref<number | null>(null)
@@ -638,7 +631,7 @@ const signupData = ref<Record<string, any>>({})
 
 // ===== 报名奖励引导 =====
 const showGuide = ref(false)
-const guideStep = ref<'login' | 'info' | 'follow' | 'reward' | 'confirm' | ''>('')
+const guideStep = ref<'login' | 'info' | 'reward' | ''>('')
 const loginAuth = ref(false)
 const chosenRewards = ref<string[]>([])
 const grantMessages = ref<{ message: string; link?: string }[]>([])
@@ -657,8 +650,7 @@ const questionnaireKind = ref<'pre' | 'post'>('pre')
 // 分步收集当前步骤（活动前问卷按 step 1-5 分步展示）
 const questionnaireStep = ref(0)
 
-// ---- 报名前「报名奖励」清单弹层（必得区 + 解锁区） ----
-const showRewardPreview = ref(false)
+// ---- 报名奖励清单数据（引导 reward 步骤展示，来自 unlockCheck） ----
 const rewardPreviewData = ref<any>(null)   // unlockCheck 返回结果
 
 /** 是否无条件（condition 为 none/空）→ 归入必得区；其余带条件进解锁区 */
@@ -704,7 +696,6 @@ const previewSelectHint = computed(() => {
 
 const hasRewardPreview = computed(() => previewMustGetRewards.value.length > 0 || previewUnlockRewards.value.length > 0)
 
-const previewExpandId = ref<string | null>(null)
 const typeLabelMap: Record<string, string> = {
   points: '积分', coupon: '优惠券', course_trial: '试听课程', course_outline: '课时/大纲', article: '文章',
 }
@@ -714,9 +705,9 @@ function rewardIcon(r: any): string {
     case 'points': return '分'
     case 'coupon': return '券'
     case 'course_trial': return '课'
-    case 'course_outline': return r?.kind === 'lesson' ? '课' : '纲'
+    case 'course_outline': return '课'
     case 'article': return '文'
-    default: return '益'
+    default: return '资'
   }
 }
 /** 图标徽标配色类 */
@@ -725,14 +716,13 @@ function rewardIcoClass(r: any): string {
     case 'points': return 'pts'
     case 'coupon': return 'coup'
     case 'course_trial': return 'ctr'
-    case 'course_outline': return r?.kind === 'lesson' ? 'ctr' : 'cou'
+    case 'course_outline': return 'ctr'
     case 'article': return 'art'
     default: return 'def'
   }
 }
 function typeTag(r: any): string { return typeLabelMap[(r?.type || '').toLowerCase()] || '权益' }
 function rewardMeta(r: any): string { return (r?.meta && r.meta !== r?.name) ? r.meta : typeTag(r) }
-function togglePreviewExpand(id: string) { previewExpandId.value = previewExpandId.value === id ? null : id }
 
 // ---- 报名后「领取更多权益」卡片区 ----
 const unlockCtx = ref<any>(null)            // getSignupUnlockStatus 结果
@@ -741,16 +731,25 @@ const contactForm = ref<Record<string, any>>({})
 const showSubscribeFill = ref(false)        // 关注内联领取展开
 
 /** 报名后拉取解锁状态并回填卡片区 */
+const notifiedRewards = ref(new Set<string>()) // 已提示过解锁的权益 id，避免重复弹
 async function loadSignupUnlock() {
   if (!signupId.value) return
   try {
     const res = await getSignupUnlockStatus(signupId.value)
     unlockCtx.value = res || null
+    // 权益解锁特效提示（每次拉取后对新解锁的权益弹提示）
+    const rewards = Array.isArray((res as any)?.rewards) ? (res as any).rewards : []
+    for (const r of rewards) {
+      if (r && r.unlocked && !notifiedRewards.value.has(String(r.id || r.name))) {
+        notifiedRewards.value.add(String(r.id || r.name))
+        triggerFloat(0, `权益已解锁：${r.name || '权益'}`)
+      }
+    }
   } catch (e) {
     console.warn('加载权益状态失败', e)
   }
 }
-// 公众号关注二维码（微信环境报名引导 Step3；未配置公众号时 followEnabled=false 跳过）
+// 公众号关注二维码（报名后「领取更多权益」关注项使用；未配置公众号时 followEnabled=false 跳过）
 const wxQrcodeUrl = ref('')
 const followEnabled = ref(false)
 
@@ -834,9 +833,6 @@ const needsInfo = computed(() => {
   return contactNeeded || surveyNeeded
 })
 
-// 关注步：未关注且二维码可用才展示
-const showFollowStep = computed(() => !subscribed.value && followEnabled.value)
-
 /** 进入引导：微信环境无条件触发（不再依赖 rewardConfig）；先探测解锁状态再定步进 */
 async function openRewardGuide() {
   loginAuth.value = false
@@ -854,19 +850,25 @@ async function openRewardGuide() {
     uni.removeStorageSync(REWARD_GUIDE_KEY)
   }
   await refreshUnlockStatus()
-  if (!subscribed.value) await loadFollowQrcode()
   guideStep.value = resolveGuideStep()
+  // 无任何需要引导的步骤（已登录且无奖励/无需补信息）→ 直接报名，避免空面板
+  if (!guideStep.value) {
+    showGuide.value = false
+    confirmGuideSignup()
+  }
 }
 
-/** 调用后端解锁探测，刷新 loginAuth/subscribed/unlockStatus */
+/** 调用后端解锁探测，刷新 loginAuth/subscribed/unlockStatus 及报名奖励清单数据 */
 async function refreshUnlockStatus() {
   try {
     const st = await unlockCheck(id, { ...signupData.value }, questionnaireData.value)
     unlockStatus.value = st || null
+    rewardPreviewData.value = st || null
     loginAuth.value = !!st?.loginAuth
     subscribed.value = !!st?.subscribed
   } catch (e) {
     unlockStatus.value = null
+    rewardPreviewData.value = null
   }
 }
 
@@ -883,12 +885,14 @@ async function loadFollowQrcode() {
   }
 }
 
-// ===== 领积分 +50 飘分动画 =====
+// ===== 领积分 +N 飘分动画（points > 0 显示 +N 文案，否则仅展示 msg，如权益解锁） =====
 const floatText = ref(0)
+const floatMsg = ref('积分已到账')
 const floatShow = ref(false)
 let floatTimer: any = null
-function triggerFloat(points = 50) {
+function triggerFloat(points = 50, msg = '积分已到账') {
   floatText.value = points
+  floatMsg.value = points > 0 ? `+${points} ${msg}` : msg
   floatShow.value = false
   nextTick(() => { floatShow.value = true })
   if (floatTimer) clearTimeout(floatTimer)
@@ -929,15 +933,22 @@ function saveFollowQrcode() {
   // #endif
 }
 
-/** 线性向导下一步：login → info → follow → reward(有权益才展示) → 走完即报名（不再二次确认） */
+/** 引导步骤链：login → reward(报名奖励清单，第二步) → [info 仅浏览器] → 报名。
+ *  微信环境：login → reward → 报名（取消 info/follow）；
+ *  浏览器环境：login → reward → info → 报名（取消 follow）。权益可报名后补领。 */
 function resolveNextStep(): string {
-  if (needsInfo.value) return 'info'
-  if (showFollowStep.value) return 'follow'
-  if (unlockedRewards.value.length) return 'reward'
-  return ''
+  const s = guideStep.value
+  if (s === '' || s === 'login') {
+    if (hasRewardPreview.value) return 'reward'
+    if (needsInfo.value) return 'info'
+    return ''
+  }
+  if (s === 'reward') return needsInfo.value ? 'info' : ''
+  return '' // info → 报名
 }
 function resolveGuideStep(): string {
-  if (!loginAuth.value) return 'login'
+  // login 对比步仅微信环境展示；浏览器环境未登录也直接进 reward/info，不强制登录
+  if (isWechatBrowser() && !loginAuth.value) return 'login'
   return resolveNextStep()
 }
 
@@ -989,17 +1000,6 @@ async function chooseAuthLogin() {
 /** 信息步进完成：重新评估下一步（可能仍需 info） */
 function continueInfo() {
   goNextGuide()
-}
-
-/** 关注公众号通道：重测订阅状态（微信事件回调已写库，刷新即可）；已关注则发关注积分并推进 */
-async function refreshSubscribeStatus() {
-  await refreshUnlockStatus()
-  if (subscribed.value) {
-    goNextGuide()
-    uni.showToast({ title: '已关注，+50积分', icon: 'none' })
-  } else {
-    uni.showToast({ title: '暂未检测到关注，请关注后再试', icon: 'none' })
-  }
 }
 
 /** 勾选/取消多选奖励（单选自动领取，不可取消；按 selectMode 约束） */
@@ -1246,6 +1246,7 @@ async function submitBenefitContact() {
       showContactFill.value = false
       signupData.value = { ...signupData.value, ...(form as any) }
       await loadSignupUnlock()
+      triggerFloat(20)
       uni.showToast({ title: '联系方式已完善', icon: 'success' })
     } else {
       uni.showToast({ title: '提交失败', icon: 'none' })
@@ -1457,6 +1458,17 @@ function setupActivityShare() {
   setupPageShare({ title: a.title, desc, imgUrl: resolveActivityCover(a) || undefined })
 }
 
+// 分享裂变：分享可得积分提示 + 我的邀请跳转
+const shareTip = ref('')
+watch(() => activity.value?.shareRewardPoints, (v: any) => {
+  const n = Number(v) || 0
+  shareTip.value = n > 0 ? `分享邀请好友报名，每成功邀请 1 人得 ${n} 积分` : ''
+}, { immediate: true })
+
+function goMyInvitation() {
+  uni.navigateTo({ url: '/pages/activity/my-invitation' })
+}
+
 /** 加载活动费用预览（失败静默保留默认值） */
 async function loadFee() {
   if (!id) return
@@ -1531,11 +1543,6 @@ async function generateQrcode() {
   // #endif
 }
 
-function openSignupForm() {
-  signupData.value = {}
-  showSignupForm.value = true
-}
-
 function toggleMulti(f: any, o: string) {
   const arr = Array.isArray(signupData.value[f.key]) ? [...signupData.value[f.key]] : []
   const i = arr.indexOf(o)
@@ -1574,55 +1581,29 @@ function submitSignupForm() {
   doSignup(formData)
 }
 
-/** 报名前拦截：先弹「报名奖励」清单（必得区 + 解锁区），确认后再走各自报名流程 */
+/** 报名入口：统一进入引导向导（微信：login→reward→报名；浏览器：login→reward→info→报名） */
 async function onSignup() {
-  if (await ensureRewardPreview()) return
-  proceedSignup()
+  openRewardGuide()
 }
 
-/** 确认真实分流：微信引导 / 报名表单 / 直接报名 */
-function proceedSignup() {
-  // 微信环境必走对比法引导（不再依赖 rewardConfig，无权益时以分级积分兜底）
-  if (isWechatBrowser()) {
-    openRewardGuide()
-  } else if (formFields.value.length) {
-    openSignupForm()
-  } else {
-    doSignup()
-  }
-}
-
-/** 报名前解锁探测：存在必得/解锁奖励则弹「报名奖励」清单并返回已拦截 */
-async function ensureRewardPreview(): Promise<boolean> {
-  uni.showLoading({ title: '加载奖励...' })
-  try {
-    const st = await unlockCheck(id, { ...signupData.value }, questionnaireData.value)
-    rewardPreviewData.value = st || null
-    // 复用探测结果回填登录/关注态，供微信引导继续使用
-    loginAuth.value = !!st?.loginAuth
-    subscribed.value = !!st?.subscribed
-  } catch (e) {
-    rewardPreviewData.value = null
-  } finally {
-    uni.hideLoading()
-  }
-  if (hasRewardPreview.value) {
-    showRewardPreview.value = true
-    return true
-  }
-  return false
-}
-
-/** 「报名奖励」清单确认 → 继续真实报名流程 */
-function confirmRewardPreview() {
-  showRewardPreview.value = false
-  proceedSignup()
-}
-
-/** 报名成功悬浮「领取权益」是否展示：存在未解锁/待领取权益才显示，全部已领取则隐藏 */
-const showClaimBtn = computed(() => {
+/** 悬浮「去领权益」按钮：仅存在未领取权益时可能展示；滚动到权益区则隐藏，滚出且仍有未领再显示 */
+const claimBarVisible = ref(true)
+function hasPendingBenefit() {
   return signedUp.value && signupId.value && benefitCards.value.some(c => !c.done)
-})
+}
+function updateClaimBar() {
+  if (!hasPendingBenefit()) { claimBarVisible.value = false; return }
+  const newVisible = new Promise<boolean>((resolve) => {
+    uni.createSelectorQuery().select('#benefit-section').boundingClientRect((rect: any) => {
+      if (!rect) { resolve(true); return }
+      const win = (uni.getSystemInfoSync().windowHeight as number) || 667
+      // 区域顶部进入可视区上部（<55% 屏高）即视为已到达 → 隐藏按钮
+      resolve(!(rect.top >= -80 && rect.top < win * 0.55))
+    }).exec()
+  })
+  newVisible.then(v => { claimBarVisible.value = v })
+}
+onPageScroll(() => { updateClaimBar() })
 
 /** 悬浮按钮点击：滚动定位到「领取更多权益」卡片区 */
 function scrollToBenefit() {
@@ -2214,15 +2195,53 @@ onUnmounted(() => {
   color: #999;
 }
 
+.share-row {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 20rpx;
+}
+
+.share-entry,
+.invite-entry {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  border-radius: 16rpx;
+  padding: 26rpx 20rpx;
+}
+
 .share-entry {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.invite-entry {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.share-entry-title,
+.invite-entry-title {
   color: #fff;
-  border-radius: 16rpx;
-  padding: 26rpx 30rpx;
-  margin-bottom: 20rpx;
-  text-align: center;
   font-size: 30rpx;
   font-weight: 500;
+}
+
+.share-entry-sub,
+.invite-entry-sub {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 22rpx;
+}
+
+.share-tip {
+  margin-bottom: 20rpx;
+  background: #fff7e6;
+  border: 1rpx solid #ffe7ba;
+  border-radius: 12rpx;
+  padding: 16rpx 24rpx;
+  font-size: 24rpx;
+  color: #d48806;
 }
 
 .review-mask {
@@ -2336,7 +2355,18 @@ onUnmounted(() => {
 .signup-field { margin-bottom: 28rpx; }
 .signup-label { display: block; font-size: 26rpx; color: #333; margin-bottom: 12rpx; }
 .req { color: #ff4d4f; margin-left: 4rpx; }
-.signup-input { border: 1rpx solid #e5e5e5; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 28rpx; }
+.signup-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 92rpx;
+  padding: 26rpx 20rpx;
+  line-height: 1.4;
+  background: #fff;
+  border: 1rpx solid #e5e5e5;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+}
 .signup-textarea { width: 100%; box-sizing: border-box; min-height: 140rpx; border: 1rpx solid #e5e5e5; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 28rpx; }
 .signup-other { margin-top: 12rpx; }
 .signup-picker { border: 1rpx solid #e5e5e5; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 28rpx; color: #333; display: flex; justify-content: space-between; }
@@ -2376,10 +2406,9 @@ onUnmounted(() => {
   padding: 22rpx 24rpx;
   margin-bottom: 16rpx;
   box-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.06);
-  &.done { opacity: 0.62; }
+  &.done { background: #f6ffed; border: 1rpx solid #b7eb8f; }
   &.reward .benefit-ic { background: #fff7e6; color: #fa8c16; }
-  &.locked { opacity: 0.8; background: #fafafa; }
-  &.locked .benefit-state { color: #c0c4cc; }
+  &.locked { background: #f7f8fa; }
 }
 .benefit-ic {
   width: 64rpx;
@@ -2415,11 +2444,22 @@ onUnmounted(() => {
   font-size: 24rpx;
   color: #969aa3;
   font-weight: 600;
+  border-radius: 999rpx;
+  padding: 10rpx 20rpx;
+  line-height: 1;
   &.go {
     color: #667eea;
     background: #eef0ff;
-    border-radius: 999rpx;
-    padding: 10rpx 20rpx;
+  }
+  &.done-tag {
+    color: #389e0d;
+    background: #f0fdf4;
+    border: 1rpx solid #b7eb8f;
+  }
+  &.wait-tag {
+    color: #8c8c99;
+    background: #f0f1f3;
+    border: 1rpx solid #e0e2e6;
   }
 }
 .benefit-inline {
@@ -2433,6 +2473,13 @@ onUnmounted(() => {
   font-size: 26rpx;
   color: #5b6470;
   line-height: 1.5;
+}
+.benefit-inline-tip {
+  display: block;
+  font-size: 24rpx;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 20rpx;
 }
 
 .signup-btn { flex: 1; text-align: center; padding: 22rpx 0; border-radius: 40rpx; font-size: 30rpx; }
@@ -2505,6 +2552,7 @@ onUnmounted(() => {
 .reward-check.on { background: #667eea; border-color: #667eea; }
 .reward-auto { font-size: 20rpx; color: #fff; }
 .reward-name { flex: 1; font-size: 28rpx; color: #333; }
+.guide-reward-body { width: 100%; max-height: 46vh; }
 
 /* 对比法：授权主卡高亮，静默弱化 */
 .guide-opt.primary.highlight {
