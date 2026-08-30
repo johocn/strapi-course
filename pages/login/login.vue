@@ -346,6 +346,7 @@ import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import { getQrconnectUrl as fetchQrconnectUrl, redirectToOpenPlatformAuth as doRedirectToOpenPlatformAuth } from '../../utils/wx-open-platform-login'
 import { shouldUseSso, buildSsoRedirectUrl } from '../../utils/login-chain'
+import { probeHostReachable } from '../../utils/sso-probe'
 // #endif
 
 // === 认证配置状态 ===
@@ -511,18 +512,11 @@ onMounted(async () => {
 
     // 优先级 2：third 模式 + 公众号启用 → 自动跳微信静默登录
     if (mode === 'third' && authConfig.value?.wechatOfficialAccountEnabled) {
-      // 防循环：URL 带 code 时不跳
+      // 防循环：URL 带 code 时不跳（微信授权回调由后端 /wechat/callback 处理，不回到本页）
       const urlParams = new URLSearchParams(window.location.search)
       if (urlParams.get('code')) return
 
-      // 重试次数限制：最多 2 次
-      const retryCount = Number(uni.getStorageSync('h5WechatAutoLoginRetries') || 0)
-      if (retryCount >= 2) {
-        console.log('[Login] 微信自动登录已超过最大重试次数（2次），降级显示登录表单')
-        return
-      }
-
-      uni.setStorageSync('h5WechatAutoLoginRetries', retryCount + 1)
+      // 进登录页即自动静默登录，不做重试次数限制（避免 storage 残留计数导致不再自动跳转）
       redirectToWechatAuth('snsapi_base')
       return
     }
@@ -562,15 +556,23 @@ function h5WechatFullLogin() {
   // #endif
 }
 
-// === SSO 登录跳转（携带邀请码参数） ===
-function redirectToSso() {
+// === SSO 登录跳转（携带邀请码参数；SSO 不可达连试 3 次后降级本地登录） ===
+async function redirectToSso() {
   // #ifdef H5
   const ssoUrl = buildSsoRedirectUrl(authConfig.value)
-  if (ssoUrl) {
-    window.location.href = ssoUrl
+  if (!ssoUrl) {
+    uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
     return
   }
-  uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
+  uni.showLoading({ title: '正在连接统一登录...' })
+  const reachable = await probeHostReachable(ssoUrl)
+  uni.hideLoading()
+  if (!reachable) {
+    uni.showToast({ title: '统一登录暂不可用，请使用下方账号密码登录', icon: 'none' })
+    return
+  }
+  window.location.href = ssoUrl
+  return
   // #endif
   // #ifndef H5
   uni.showToast({ title: '请在浏览器中打开 SSO 登录', icon: 'none' })

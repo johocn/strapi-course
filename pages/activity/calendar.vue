@@ -44,7 +44,7 @@
           </view>
           <view class="item-venue">
             <text class="venue-icon">📍</text>
-            <text class="venue-name">{{ item.venueName || '待定场地' }}</text>
+            <text class="venue-name">{{ item.venue?.name || item.venueName || '待定场地' }}</text>
           </view>
         </view>
       </view>

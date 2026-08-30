@@ -587,7 +587,8 @@ function resolveTemplateLocal(code, variables) {
       if (element.variableName === "invite_code" && !variables.invite_code) {
         resolved.resolvedContent = element.defaultValue || "";
       } else {
-        resolved.resolvedContent = element.defaultValue || variables[element.variableName] || "";
+        // 传入变量值优先，defaultValue 兜底
+        resolved.resolvedContent = variables[element.variableName] || element.defaultValue || "";
       }
     } else {
       resolved.resolvedContent = element.content || "";

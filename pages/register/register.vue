@@ -117,7 +117,8 @@ import { setupPageShare } from '../../utils/share'
 // #ifdef H5
 import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
-import { shouldUseSso, buildSsoRedirectUrl } from '../../utils/login-chain'
+import { shouldUseSso, buildSsoRegisterUrl } from '../../utils/login-chain'
+import { probeHostReachable } from '../../utils/sso-probe'
 // #endif
 
 const siteConfig = getStoredAuthConfig()
@@ -165,21 +166,29 @@ onMounted(async () => {
     return
   }
 
-  // SSO（ssoEnabled 且 ssoLoginUrl 已配置，优先级最高）：跳 SSO 登录，由 SSO 端处理注册
+  // SSO（ssoEnabled 且 ssoLoginUrl 已配置，优先级最高）：注册并入 SSO → 跳 SSO 注册页由 SSO 端处理；
+  // SSO 不可达（连试 3 次失败）→ 兜底本地注册表单（停留本页）
   if (shouldUseSso(authConfig)) {
     // SSO 模式下，若租户关闭了注册，跳登录页让 SSO 端处理（SSO 端可能有注册开关或邀请码注册）
     if (authConfig.registerEnabled === false) {
       uni.redirectTo({ url: '/pages/login/login' })
       return
     }
-    const ssoUrl = buildSsoRedirectUrl(authConfig)
+    const ssoUrl = buildSsoRegisterUrl(authConfig)
     if (ssoUrl) {
-      // 透传调试参数 debugWx，便于本地端到端模拟微信环境
-      const debugWx = hashParams.get('debugWx')
-      const sep = ssoUrl.includes('?') ? '&' : '?'
-      window.location.href = `${ssoUrl}${sep}${debugWx === '1' ? 'debugWx=1' : ''}`
-      return
+      const reachable = await probeHostReachable(ssoUrl)
+      if (reachable) {
+        // 透传调试参数 debugWx，便于本地端到端模拟微信环境
+        const debugWx = hashParams.get('debugWx')
+        const sep = ssoUrl.includes('?') ? '&' : '?'
+        window.location.href = `${ssoUrl}${sep}${debugWx === '1' ? 'debugWx=1' : ''}`
+      }
+      // 不可达：不上跳，停留本页，由下方本地注册表单兜底
+    } else {
+      // ssoLoginUrl 无法推导出注册页地址，则本地注册表单兜底（停留本页）
+      uni.showToast({ title: '统一注册暂不可用，请使用下方注册表单', icon: 'none' })
     }
+    return
   }
 
   // third 模式 + 微信环境 + 公众号启用：自动跳微信静默登录

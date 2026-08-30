@@ -696,11 +696,13 @@ onMounted(() => {
 .ad-slideshow {
   width: 100%;
   position: relative;
+  min-height: 200rpx;
 }
 
 .ad-swiper {
   width: 100%;
   height: 300rpx;
+  min-height: 300rpx;
 }
 
 .ad-slide-item {
@@ -713,7 +715,11 @@ onMounted(() => {
 .ad-slide-img {
   width: 100%;
   height: 100%;
-  display: block;
+  /* 移动端 WebView（微信 X5 / 系统浏览器）对百分比高度链解析不可靠，给图片绝对定位兜底，
+     保证即使外层高度尚未稳定，幻灯片图片也能撑满容器、不会塌陷成 0 高度白块 */
+  position: absolute;
+  left: 0;
+  top: 0;
 }
 
 .ad-slide-placeholder {

@@ -5,8 +5,8 @@
   "scripts": {
     "dev:h5": "set UNI_INPUT_DIR=%cd%&& uni",
     "build:h5": "set UNI_INPUT_DIR=%cd%&& uni build",
-    "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "uni build -p mp-weixin",
+    "dev:mp-weixin": "set UNI_INPUT_DIR=%cd%&& uni -p mp-weixin",
+    "build:mp-weixin": "set UNI_INPUT_DIR=%cd%&& uni build -p mp-weixin",
     "test": "jest",
     "test:e2e": "jest --config jest.config.js",
     "test:register": "jest tests/e2e/register-flow.test.ts",

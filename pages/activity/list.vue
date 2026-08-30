@@ -38,11 +38,14 @@
       >
         <view class="item-top">
           <text class="item-title">{{ item.title }}</text>
-          <text :class="['status-tag', `status-${item.status}`]">{{ statusText(item.status) }}</text>
+          <view class="item-tags">
+            <text v-if="isSignedUp(item)" class="signed-tag">已报名</text>
+            <text :class="['status-tag', `status-${item.status}`]">{{ statusText(item.status) }}</text>
+          </view>
         </view>
         <view class="item-venue">
           <text class="venue-icon">📍</text>
-          <text class="venue-name">{{ item.venueName || '待定场地' }}</text>
+          <text class="venue-name">{{ item.venue?.name || item.venueName || '待定场地' }}</text>
         </view>
         <view class="item-time">
           <text class="time-label">时间</text>
@@ -68,7 +71,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { listActivities, getActivityCategories } from '../../services/api'
+import { listActivities, getActivityCategories, myActivities } from '../../services/api'
 import { fetchAuthConfig, getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
 
@@ -78,6 +81,8 @@ const categories = ref<string[]>([])
 const activeCategory = ref('')
 const keyword = ref('')
 const canUse = ref(true)
+// 当前用户已报名活动的 documentId 集合（登录后有效；未登录为空 → 不显示"已报名"标签）
+const mySignedUpIds = ref<Set<string>>(new Set())
 
 function applyActivityGate() {
   const cfg = getStoredAuthConfig()
@@ -125,6 +130,27 @@ function goDetail(item: any) {
   uni.navigateTo({ url: `/pages/activity/detail?id=${id}` })
 }
 
+function isSignedUp(item: any): boolean {
+  return mySignedUpIds.value.has(item.documentId || item.id)
+}
+
+/** 拉取本人报名记录，标记已报名活动（未登录/接口失败静默忽略，不影响列表展示） */
+async function loadMySignups() {
+  try {
+    const rows = (await myActivities()) as any
+    if (!Array.isArray(rows)) return
+    const ids = new Set<string>()
+    for (const r of rows) {
+      if (r?.status !== 'active' && r?.status !== 'waiting') continue
+      const docId = r?.activity?.documentId || r?.activity?.id
+      if (docId != null) ids.add(String(docId))
+    }
+    mySignedUpIds.value = ids
+  } catch (e) {
+    /* 未登录或接口异常 → 不标记 */
+  }
+}
+
 function goCalendar() {
   uni.navigateTo({ url: '/pages/activity/calendar' })
 }
@@ -164,6 +190,7 @@ onMounted(async () => {
   }
   loadActivities()
   loadCategories()
+  loadMySignups()
   setupPageShare({ title: '活动列表' })
 })
 </script>
@@ -207,6 +234,22 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20rpx;
+}
+
+.item-tags {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.signed-tag {
+  font-size: 22rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 20rpx;
+  white-space: nowrap;
+  background: #f6ffed;
+  color: #52c41a;
 }
 
 .item-title {

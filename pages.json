@@ -172,6 +172,12 @@
 			}
 		},
 		{
+			"path": "pages/activity/promo",
+			"style": {
+				"navigationBarTitleText": "活动宣传"
+			}
+		},
+		{
 			"path": "pages/partner/customers",
 			"style": {
 				"navigationBarTitleText": "我的客户"

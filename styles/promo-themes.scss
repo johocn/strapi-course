@@ -1,0 +1,8 @@
+/* 活动宣传页 5 风格配色（由 promoTemplate 决定根类） */
+.promo-summit { --c-primary: #c9a24b; --c-bg: #0b1220; --c-text: #e8e6e0; --c-text-dim: #9aa0ac; --c-card: #151d2e; --c-accent: #c9a24b; }
+.promo-salon { --c-primary: #6366f1; --c-bg: #ffffff; --c-text: #1f2937; --c-text-dim: #6b7280; --c-card: #f5f6ff; --c-accent: #6366f1; }
+.promo-training { --c-primary: #059669; --c-bg: #ffffff; --c-text: #1f2937; --c-text-dim: #6b7280; --c-card: #f0faf5; --c-accent: #059669; }
+.promo-action { --c-primary: #ef4444; --c-bg: #fff7f5; --c-text: #1f2937; --c-text-dim: #6b7280; --c-card: #fff1ee; --c-accent: #f97316; }
+.promo-life { --c-primary: #db2777; --c-bg: #fff6fa; --c-text: #1f2937; --c-text-dim: #8b5e70; --c-card: #fff0f5; --c-accent: #db2777; }
+.promo-page .promo-card { background: var(--c-card); border-radius: 16rpx; padding: 28rpx; margin: 0 24rpx 24rpx; }
+.promo-page .promo-btn-primary { background: var(--c-primary); color: #fff; }
