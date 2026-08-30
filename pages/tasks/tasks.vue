@@ -17,6 +17,7 @@
           </view>
           <view class="task-status">
             <view class="status-done" v-if="task.isCompleted">已完成</view>
+            <view class="status-todo" v-else-if="task.action === 'activity_share' && !task.isCompleted" @click="openShareGuide()">去分享</view>
             <view class="status-progress" v-else-if="task.limitPerDay > 0 && task.todayCount > 0">
               {{ task.todayCount }}/{{ task.limitPerDay }}
             </view>
@@ -29,15 +30,20 @@
     <view v-if="Object.keys(taskGroups).length === 0" class="empty-state">
       <text>暂无任务</text>
     </view>
+
+    <ShareGuide :visible="showShareGuide" @update:visible="v => showShareGuide = v" @claimed="onShareClaimed" />
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { getPointTasks } from '../../services/api'
 import { setupPageShare } from '../../utils/share'
+import ShareGuide from '../../components/share-guide/share-guide.vue'
 
 const taskGroups = ref<Record<string, any[]>>({})
+const showShareGuide = ref(false)
 
 const groupLabels: Record<string, string> = {
   daily: '每日签到',
@@ -65,6 +71,19 @@ onMounted(() => {
   loadTasks()
   setupPageShare({ title: '任务中心' })
 })
+
+onShow(() => {
+  loadTasks()
+})
+
+function openShareGuide() {
+  showShareGuide.value = true
+}
+
+function onShareClaimed() {
+  showShareGuide.value = false
+  loadTasks()
+}
 </script>
 
 <style lang="scss" scoped>
