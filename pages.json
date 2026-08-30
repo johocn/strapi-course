@@ -172,6 +172,12 @@
 			}
 		},
 		{
+			"path": "pages/activity/my-invitation",
+			"style": {
+				"navigationBarTitleText": "我的邀请"
+			}
+		},
+		{
 			"path": "pages/activity/promo",
 			"style": {
 				"navigationBarTitleText": "活动宣传"
