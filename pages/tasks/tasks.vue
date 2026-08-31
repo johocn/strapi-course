@@ -8,7 +8,14 @@
       <view class="task-list">
         <view v-for="task in group" :key="task.action" class="task-card" :class="{ completed: task.isCompleted }">
           <view class="task-info">
-            <text class="task-desc">{{ task.description || task.action }}</text>
+            <view class="task-title-row">
+              <text v-if="task.icon && isImageUrl(task.icon)" class="task-icon-img-wrap">
+                <image class="task-icon-img" :src="task.icon" mode="aspectFit" />
+              </text>
+              <text v-else-if="task.icon" class="task-icon">{{ task.icon }}</text>
+              <text class="task-name">{{ task.name || task.description || task.action }}</text>
+            </view>
+            <text class="task-desc" v-if="task.name && task.description">{{ task.description }}</text>
             <view class="task-meta">
               <text class="task-points">+{{ task.points }}积分</text>
               <text class="task-limit" v-if="task.limitPerDay > 0">每日{{ task.limitPerDay }}次</text>
@@ -17,7 +24,7 @@
           </view>
           <view class="task-status">
             <view class="status-done" v-if="task.isCompleted">已完成</view>
-            <view class="status-todo" v-else-if="task.action === 'activity_share' && !task.isCompleted" @click="openShareGuide()">去分享</view>
+            <view class="status-todo" v-else-if="task.action === 'activity_share' && !task.isCompleted" @click="openShareGuide(task)">去分享</view>
             <view class="status-progress" v-else-if="task.limitPerDay > 0 && task.todayCount > 0">
               {{ task.todayCount }}/{{ task.limitPerDay }}
             </view>
@@ -31,7 +38,15 @@
       <text>暂无任务</text>
     </view>
 
-    <ShareGuide :visible="showShareGuide" @update:visible="v => showShareGuide = v" @claimed="onShareClaimed" />
+    <ShareGuide
+      :visible="showShareGuide"
+      :link-type="currentShareTask?.linkType"
+      :link-target-id="currentShareTask?.linkTargetId"
+      :link-title="currentShareTask?.linkTitle"
+      @update:visible="v => showShareGuide = v"
+      @claimed="onShareClaimed"
+      @goto="onShareGoto"
+    />
   </view>
 </template>
 
@@ -44,6 +59,7 @@ import ShareGuide from '../../components/share-guide/share-guide.vue'
 
 const taskGroups = ref<Record<string, any[]>>({})
 const showShareGuide = ref(false)
+const currentShareTask = ref<any>(null)
 
 const groupLabels: Record<string, string> = {
   daily: '每日签到',
@@ -52,6 +68,10 @@ const groupLabels: Record<string, string> = {
   social: '社交任务',
   onetime: '一次性任务',
   other: '其他任务',
+}
+
+function isImageUrl(v: string): boolean {
+  return /^https?:\/\//i.test(v)
 }
 
 function getGroupCompleted(group: any[]) {
@@ -76,13 +96,24 @@ onShow(() => {
   loadTasks()
 })
 
-function openShareGuide() {
+function openShareGuide(task: any) {
+  currentShareTask.value = task
   showShareGuide.value = true
 }
 
 function onShareClaimed() {
   showShareGuide.value = false
   loadTasks()
+}
+
+function onShareGoto(target: { linkType: string; linkTargetId: string }) {
+  const { linkType, linkTargetId } = target
+  if (!linkTargetId || linkType === 'none') return
+  let url = ''
+  if (linkType === 'course') url = `/pages/course-detail/course-detail?courseId=${linkTargetId}`
+  else if (linkType === 'activity') url = `/pages/activity/detail?id=${linkTargetId}`
+  // article 无独立页面，不跳转
+  if (url) uni.navigateTo({ url })
 }
 </script>
 
@@ -135,6 +166,36 @@ function onShareClaimed() {
 }
 
 .task-info {
+  flex: 1;
+}
+
+.task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
+
+.task-icon {
+  font-size: 34rpx;
+  line-height: 1;
+}
+
+.task-icon-img-wrap {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+}
+
+.task-icon-img {
+  width: 100%;
+  height: 100%;
+}
+
+.task-name {
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
   flex: 1;
 }
 

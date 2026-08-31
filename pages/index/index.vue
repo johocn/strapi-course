@@ -18,9 +18,9 @@
           <view class="header-right">
             <view v-if="isLoggedIn" class="user-info" @click="goToProfile">
               <view class="user-avatar">
-                <text>{{ (user?.name || user?.username || user?.nickname)?.slice(0, 1) || '用' }}</text>
+                <text>{{ getDisplayName().slice(0, 1) || '用' }}</text>
               </view>
-              <text class="user-name">{{ user?.name || user?.username || user?.nickname || '用户' }}</text>
+              <text class="user-name">{{ getDisplayName() || '用户' }}</text>
             </view>
             <view v-else class="login-btn" @click="goToLogin">
               <text>登录</text>
@@ -194,7 +194,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
 import { getCourseList, getPointBalance, getCourseCategories, getInviteStats, getTags, getMyCourseProgresses, getRecommend } from '../../services/api'
 import { validateLogin, getAuthUser, checkLogin } from '../../utils/auth'
@@ -342,6 +342,17 @@ function debouncedLoadCourses() {
   }, 300)
 }
 
+// ===== 排序 / 快捷价格过滤（chip 与排序条仅 emit 更新 ref，需监听以触发重载） =====
+watch(sortKey, () => {
+  persistState()
+  debouncedLoadCourses()
+})
+
+watch(priceType, () => {
+  persistState()
+  debouncedLoadCourses()
+})
+
 // ===== 事件处理 =====
 function handleViewModeChange(mode: ViewMode) {
   viewMode.value = mode
@@ -417,6 +428,11 @@ function getUserInfo() {
   const loginState = checkLogin()
   isLoggedIn.value = loginState.isLoggedIn
   user.value = loginState.user || getAuthUser()
+}
+
+/** 首页展示姓名：与「我的」页保持一致，nickname 优先，兜底 '用户' */
+function getDisplayName(): string {
+  return user.value?.nickname || user.value?.name || user.value?.username || '用户'
 }
 
 // 获取邀请码
@@ -510,13 +526,13 @@ async function loadCategories() {
 async function loadCourses() {
   loading.value = true
   try {
-    const effectiveSort = priceType.value === 'newest' ? 'newest' : sortKey.value
-    const effectivePriceType = priceType.value === 'newest' ? 'all' : priceType.value
+    // 兼容历史持久化的 priceType='newest'（已从芯片组下掉「✨最新」，仅旧状态兜底）：视为按最新发布排序
+    const isLegacyNewest = priceType.value === 'newest'
     const res: any = await getCourseList({
       category: activeCategory.value,
       q: searchKeyword.value,
-      sort: effectiveSort,
-      priceType: effectivePriceType,
+      sort: isLegacyNewest ? 'newest' : sortKey.value,
+      priceType: isLegacyNewest ? 'all' : priceType.value,
       difficulty: filterState.value.difficulty,
       language: filterState.value.language,
       minPrice: filterState.value.priceRange[0],

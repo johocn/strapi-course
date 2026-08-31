@@ -57,15 +57,14 @@ export const LANGUAGE_OPTIONS = [
   { value: 'ko-KR', label: '韩语' }
 ]
 
-/** 快捷芯片选项 */
+/** 快捷芯片选项（价格/属性过滤；「最新」归排序条，不重复占用） */
 export const PRICE_TYPE_OPTIONS = [
   { value: 'all', label: '全部' },
   { value: 'free', label: '免费' },
   { value: 'points', label: '积分' },
   { value: 'paid', label: '付费' },
   { value: 'featured', label: '⭐精选' },
-  { value: 'recommended', label: '🔥推荐' },
-  { value: 'newest', label: '✨最新' }
+  { value: 'recommended', label: '🔥推荐' }
 ]
 
 /** 排序选项（showRating=false 时过滤掉评分） */

@@ -1,6 +1,6 @@
 <script>
 import { validateLogin, redirectToLogin, getCurrentPagePath, isAuthPage } from './utils/auth'
-import { handleInviteLink } from './utils/invite'
+import { handleInviteLink, reportShareVisitFromLaunch } from './utils/invite'
 import { fetchAuthConfig, getStoredAuthConfig } from './services/auth-config'
 import { getUser } from './utils/storage'
 import { applyTheme } from './utils/theme'
@@ -33,6 +33,9 @@ export default {
       uni.setStorageSync('isGuest', 'true')
       console.log('已清除 mock token，切换为游客模式')
     }
+
+    // 0. 分享裂变归因上报（需在 handleInviteLink 清除 URL 参数前执行；公开接口，游客也可上报）
+    reportShareVisitFromLaunch()
 
     // 1. 处理邀请链接参数（优先级最高）
     handleInviteLink()
