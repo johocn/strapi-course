@@ -2,7 +2,7 @@
   <view class="sg-overlay" v-if="visible" @click="close">
     <view class="sg-modal" @click.stop>
       <text class="sg-title">分享活动得积分</text>
-      <text class="sg-desc">每分享 1 次得 5 积分，每日最多 4 次，两次间隔 30 分钟</text>
+      <text class="sg-desc">{{ ruleText }}</text>
 
       <view class="sg-channel" v-for="c in channels" :key="c.key">
         <view class="sg-phone">
@@ -19,16 +19,19 @@
       </view>
       <view class="sg-actions">
         <view class="sg-btn cancel" @click="close">取消</view>
-        <view class="sg-btn submit" @click="claim"><text>我已分享 · 领取积分</text></view>
+        <view class="sg-btn submit" :class="{ disabled: !canClaim }" @click="doClaim">
+          <text>{{ canClaim ? '我已分享 · 领取积分' : '未到领取时间' }}</text>
+        </view>
       </view>
+      <view v-if="!canClaim && reasonText" class="sg-reason"><text>{{ reasonText }}</text></view>
     </view>
   </view>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { claimActivityShare } from '../../services/api'
+import { ref, computed, watch } from 'vue'
 import { buildShareLink } from '../../utils/invite'
+import { useShareClaim, shareRuleText, shareReasonText } from '../../utils/use-share-claim'
 
 const props = defineProps<{
   visible: boolean
@@ -43,10 +46,17 @@ const emit = defineEmits<{
 }>()
 const claiming = ref(false)
 
+const { state: claim, refresh: refreshClaim, claim: claimShare } = useShareClaim()
+const canClaim = computed(() => claim.value.canClaim)
+const ruleText = computed(() => shareRuleText(claim.value))
+const reasonText = computed(() => shareReasonText(claim.value))
+
 const channels = [
   { key: 'friend', name: '分享给好友', arrowText: '点右上角 ⋮ → 分享给好友' },
   { key: 'timeline', name: '分享到朋友圈', arrowText: '点右上角 ⋮ → 分享到朋友圈' },
 ]
+
+watch(() => props.visible, (v) => { if (v) refreshClaim() })
 
 function close() { emit('update:visible', false) }
 
@@ -60,33 +70,35 @@ function copyLink() {
     data: link,
     success: () => {
       uni.showToast({ title: '分享链接已复制', icon: 'none' })
-      // 复制成功即视为一次“转发完成”，触发领分
-      claim()
+      // 复制成功即视为一次“转发完成”，触发领分（未点亮则不误领）
+      doClaim()
     },
     fail: () => uni.showToast({ title: '复制失败，请重试', icon: 'none' }),
   })
 }
 
-async function claim() {
+async function doClaim() {
   if (claiming.value) return
+  if (!canClaim.value) {
+    if (reasonText.value) uni.showToast({ title: reasonText.value, icon: 'none', duration: 2000 })
+    return
+  }
   claiming.value = true
   const targetType = props.linkType
   const targetId = props.linkTargetId
-  // 活动类任务：把 linkTargetId 作为活动 id 传后端，按活动 shareRewardPoints 定价；非活动类走默认规则分
-  const activityId = targetType === 'activity' && targetId ? targetId : undefined
   try {
-    const rec = await claimActivityShare({ activityId })
-    emit('claimed')
-    close()
-    const pts = typeof rec?.points === 'number' ? rec.points : 5
-    uni.showToast({ title: `+${pts} 积分已到账`, icon: 'none' })
-    // 领分成功且有分享目标 → 通知父组件跳转到对应内容页（父组件负责路由跳转）
-    if (targetType && targetType !== 'none' && targetId) {
-      emit('goto', { linkType: targetType, linkTargetId: targetId })
+    const r = await claimShare()
+    if (r.ok) {
+      emit('claimed')
+      close()
+      uni.showToast({ title: `+${r.points} 积分已到账`, icon: 'none' })
+      // 领分成功且有分享目标 → 通知父组件跳转到对应内容页（父组件负责路由跳转）
+      if (targetType && targetType !== 'none' && targetId) {
+        emit('goto', { linkType: targetType, linkTargetId: targetId })
+      }
+    } else {
+      uni.showToast({ title: r.message, icon: 'none', duration: 2000 })
     }
-  } catch (e: any) {
-    const msg = (e as any)?.response?.data?.error || (e as any)?.message || '领取失败'
-    uni.showToast({ title: msg, icon: 'none', duration: 2000 })
   } finally {
     claiming.value = false
   }
@@ -110,4 +122,6 @@ async function claim() {
 .sg-btn { flex: 1; text-align: center; padding: 24rpx; border-radius: 44rpx; font-size: 30rpx; }
 .sg-btn.cancel { background: #f0f0f0; color: #666; }
 .sg-btn.submit { background: linear-gradient(135deg,#667eea,#764ba2); color: #fff; }
+.sg-btn.submit.disabled { background: #c9c9c9; }
+.sg-reason { margin-top: 20rpx; text-align: center; font-size: 24rpx; color: #e64340; }
 </style>

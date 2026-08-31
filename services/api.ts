@@ -690,6 +690,12 @@ export async function claimActivityShare(payload: { action?: string; channelId?:
   return res?.data ?? res
 }
 
+// 查询分享领分状态（canClaim/points/remainingMs/每日次数），用于任务中心/活动页按钮点亮与置灰
+export async function getShareClaimStatus(activityId?: string) {
+  const q = activityId ? `?` + new URLSearchParams({ activityId }).toString() : ''
+  const res = await request(`/zhao-point/v1/my/point/share/status${q}`, { method: 'GET' })
+  return res?.data ?? res
+}
 /**
  * 分享裂变归因上报（公开接口，无需登录）
  * 访客通过分享链接进入落地页时上报，用于 friend 点击归因。

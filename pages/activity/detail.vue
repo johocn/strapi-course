@@ -159,6 +159,13 @@
       <view v-if="shareTip" class="share-tip">
         <text>{{ shareTip }}</text>
       </view>
+      <!-- 分享领分按钮：点亮才可领，置灰显示原因 -->
+      <view class="share-claim-row">
+        <view class="share-claim-btn" :class="{ disabled: !shareCanClaim }" @click="claimSharePoints">
+          <text>{{ shareCanClaim ? `领${sharePoints}积分` : '未到领取时间' }}</text>
+        </view>
+      </view>
+      <view v-if="!shareCanClaim && shareReason" class="share-claim-reason"><text>{{ shareReason }}</text></view>
 
       <!-- 报名成功后的到场二维码（worker_scan 模式） -->
       <view v-if="signedUp && canWorkerScan" class="card qr-card">
@@ -557,7 +564,6 @@ import {
   listActivities,
   fillActivityContact,
   claimActivitySubscribe,
-  claimActivityShare,
   getSignupUnlockStatus,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
@@ -566,6 +572,7 @@ import { setupPageShare } from '../../utils/share'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import { shouldUseSso, buildSsoPageUrl } from '../../utils/login-chain'
 import { getStoredAuthConfig } from '../../services/auth-config'
+import { useShareClaim, shareReasonText } from '../../utils/use-share-claim'
 import UQRCode from 'uqrcodejs'
 import SharePoster from '../../components/share-poster/share-poster.vue'
 
@@ -607,17 +614,26 @@ const isFull = computed(() => {
 })
 const qrcodeUrl = ref('')
 const showSharePoster = ref(false)
-// 分享海报关闭时异步领一次分享积分（后端 activity_share：+5分，30分钟冷却，每日4次）
-// 冷却/上限/未登录时静默忽略，不阻断查看海报
+// 分享领分状态：距离上次成功 >= 冷却分钟后点亮，成功即置灰进入下一轮冷却；跨日不自动解锁
+const { state: shareClaim, refresh: refreshShare, claim: claimShare } = useShareClaim(() => id)
+const shareCanClaim = computed(() => shareClaim.value.canClaim)
+const sharePoints = computed(() => shareClaim.value.points)
+const shareReason = computed(() => shareReasonText(shareClaim.value))
+
+async function claimSharePoints() {
+  if (!shareCanClaim.value) {
+    if (shareReason.value) uni.showToast({ title: shareReason.value, icon: 'none' })
+    return
+  }
+  const r = await claimShare()
+  if (r.ok) uni.showToast({ title: `分享成功 +${r.points}积分`, icon: 'none' })
+  else if (r.message) uni.showToast({ title: r.message, icon: 'none' })
+}
+
+// 分享海报关闭时尝试领一次分享积分（点亮才领，置灰时给原因提示，不阻断查看海报）
 async function onSharePosterClosed() {
   showSharePoster.value = false
-  try {
-    const rec = await claimActivityShare({ activityId: id })
-    const pts = typeof rec?.points === 'number' ? rec.points : 5
-    uni.showToast({ title: `分享成功 +${pts}积分`, icon: 'none' })
-  } catch (e) {
-    // 冷却/上限/未登录/规则缺失时静默：不阻断查看海报
-  }
+  await claimSharePoints()
 }
 const showReview = ref(false)
 const reviewRating = ref(0)
@@ -1934,6 +1950,7 @@ onShow(() => {
   if (id && activity.value) {
     restoreSignupState()
     setupActivityShare()
+    refreshShare()
   }
 })
 
@@ -2244,6 +2261,25 @@ onUnmounted(() => {
   padding: 16rpx 24rpx;
   font-size: 24rpx;
   color: #d48806;
+}
+
+.share-claim-row { margin-bottom: 16rpx; }
+.share-claim-btn {
+  padding: 20rpx;
+  border-radius: 44rpx;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  text-align: center;
+  font-size: 30rpx;
+  font-weight: 500;
+}
+.share-claim-btn.disabled { background: #c9c9c9; }
+.share-claim-reason {
+  margin-top: -6rpx;
+  margin-bottom: 16rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #999;
 }
 
 .review-mask {
