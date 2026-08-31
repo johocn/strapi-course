@@ -696,6 +696,11 @@ export async function getShareClaimStatus(activityId?: string) {
   const res = await request(`/zhao-point/v1/my/point/share/status${q}`, { method: 'GET' })
   return res?.data ?? res
 }
+
+// 查询活动期间课时临时授权状态（命中有效临时授权时 authorized=true，播放器据此绕过顺序锁）
+export async function getTempLessonAuthStatus(lessonDocumentId: string) {
+  return request(`/zhao-point/v1/my/lesson/temp-auth/status?lessonDocumentId=${encodeURIComponent(lessonDocumentId)}`, { method: 'GET' })
+}
 /**
  * 分享裂变归因上报（公开接口，无需登录）
  * 访客通过分享链接进入落地页时上报，用于 friend 点击归因。

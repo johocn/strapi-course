@@ -256,7 +256,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, request, buildStreamSrc, getMyRoles, getSitePublicConfig } from '../../services/api'
+import { getCourseDetail, getLessonList, getMyLessonProgresses, submitLessonProgress, startQuiz as apiStartQuiz, checkQuizAnswer, claimQuizPoints, submitQuizAnswer, getPointBalance, getPointFeatureFlags, getPointRecordList, request, buildStreamSrc, getMyRoles, getSitePublicConfig, getTempLessonAuthStatus } from '../../services/api'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
 import { BASE_URL } from '../../utils/env'
@@ -315,6 +315,26 @@ const lockDialogMode = ref(false)
 const lockDialogReason = ref('')
 const lockGotoLessonIndex = ref(-1)
 const lockOriginalLessonIndex = ref(-1)
+// 活动期间课时临时授权命中集合（documentId），命中则绕过顺序锁放行播放
+const tempAuthorized = ref<Set<string>>(new Set())
+const loadingTempAuth = ref(false)
+
+async function loadTempAuth() {
+  if (loadingTempAuth.value) return
+  loadingTempAuth.value = true
+  try {
+    const docIds = [...new Set(lessons.value.map((l: any) => l.documentId).filter(Boolean))]
+    for (const did of docIds) {
+      const res: any = await getTempLessonAuthStatus(did)
+      if (res?.data?.authorized) tempAuthorized.value.add(did)
+    }
+  } catch (e) { /* 静默：无临时授权按正常锁定 */ }
+  finally { loadingTempAuth.value = false }
+}
+
+function isTempAuthorized(lesson: any): boolean {
+  return lesson ? tempAuthorized.value.has(lesson.documentId) : false
+}
 
 // 续播/完成弹窗状态
 const showResumeDialog = ref(false)
@@ -516,6 +536,8 @@ async function loadData() {
     }
 
     lessons.value = enrichLessons(lessonData, progressMap)
+    // 活动临时授权为异步查询，非阻塞触发，不阻塞正常加载流程
+    loadTempAuth()
     
     // 默认跳转到第一个未完成的课时（如果有未完成的）
     const firstIncompleteIndex = findFirstIncompleteIndex(lessons.value)
@@ -577,6 +599,9 @@ function getVideoContext() {
 
 /** 检查课时是否被顺序锁定 */
 function getLessonLockStatus(lesson: any) {
+  if (isTempAuthorized(lesson)) {
+    return { locked: false, enforceMode: false, reason: '', firstIncomplete: null }
+  }
   if (!lesson?.sequenceTag || (lesson.sequenceNumber ?? 0) === 0) {
     return { locked: false, enforceMode: false, reason: '', firstIncomplete: null }
   }
@@ -1362,6 +1387,10 @@ onMounted(() => {
 })
 
 onShow(() => {
+  // 若已加载课时且为空时刷新一次临时授权（onShow 时机 lessons 可能未填充，由 loadData 兜底）
+  if (lessons.value.length > 0) {
+    loadTempAuth()
+  }
   // H5 微信环境：刷新分享配置
   // #ifdef H5
   if (courseDetail.value) {
