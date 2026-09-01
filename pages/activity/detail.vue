@@ -24,7 +24,7 @@
         </view>
         <view class="info-row">
           <text class="info-label">场地</text>
-          <text class="info-value">{{ activity.venueName || '待定场地' }}</text>
+          <text class="info-value">{{ activity.venue?.name || activity.venueName || '待定场地' }}</text>
         </view>
         <view v-if="activity.capacity" class="info-row">
           <text class="info-label">名额</text>
@@ -70,8 +70,21 @@
             @open-card="onPromoContact('card')"
             @open-message="onPromoContact('message')"
           />
-          <PromoMessage v-else-if="m.type === 'message'" :messages="[]" @open-message="onPromoContact('message')" />
+          <PromoMessage v-else-if="m.type === 'message'" :messages="myMessages" @open-message="openMessagePanel" />
+          <FloatContact
+            v-else-if="m.type === 'floatContact'"
+            :contact="activity.promoContact"
+            :in-wechat="isWxEnv"
+            @call-phone="onPromoContact('phone')"
+            @open-wechat="onPromoContact('wechat')"
+          />
         </block>
+      </view>
+
+      <!-- 悬浮留言按钮（有留言记录时展示，未读回复带角标） -->
+      <view v-if="myMessages.length" class="msg-float-btn" @click="openMessagePanel">
+        <text class="msg-float-icon">🗨️</text>
+        <text class="msg-float-badge" v-if="unreadReplyCount">{{ unreadReplyCount }}</text>
       </view>
 
       <!-- 回放与资料（活动结束后的沉淀内容） -->
@@ -540,6 +553,22 @@
         </view>
       </view>
     </view>
+
+    <!-- 留言咨询弹层（线程化：留言+回复同一列表展示） -->
+    <MessageDialog
+      v-model:visible="showMessagePanel"
+      :messages="myMessages"
+      placeholder="写下你的问题，运营会尽快回复"
+      @submit="submitActivityMessage"
+    />
+
+    <!-- 微信二维码弹层 -->
+    <QrContactPopup
+      v-model:visible="showWechatQr"
+      :qrcode="wechatQrcode"
+      :wechat-id="wechatId"
+      :in-wechat="isWxEnv"
+    />
   </view>
 </template>
 
@@ -565,6 +594,8 @@ import {
   fillActivityContact,
   claimActivitySubscribe,
   getSignupUnlockStatus,
+  sendActivityMessage,
+  listMyActivityMessages,
 } from '../../services/api'
 import { getToken, getUser } from '../../utils/storage'
 import { isWechatBrowser, resolveMediaUrl } from '../../utils/env'
@@ -590,6 +621,9 @@ import PromoRewards from '../../components/promo/promo-rewards.vue'
 import PromoContact from '../../components/promo/promo-contact.vue'
 import PromoMessage from '../../components/promo/promo-message.vue'
 import PromoCustomPage from '../../components/promo/promo-custom-page.vue'
+import FloatContact from '../../components/promo/float-contact.vue'
+import MessageDialog from '../../components/promo/message-dialog.vue'
+import QrContactPopup from '../../components/promo/qr-contact-popup.vue'
 
 // 报名引导存储键：activityId → { loginAuth }，用于微信授权跳转回调后恢复引导进度
 const REWARD_GUIDE_KEY = 'actRewardGuide'
@@ -747,6 +781,59 @@ const unlockCtx = ref<any>(null)            // getSignupUnlockStatus 结果
 const showContactFill = ref(false)          // 联系方式内联表单展开
 const contactForm = ref<Record<string, any>>({})
 const showSubscribeFill = ref(false)        // 关注内联领取展开
+
+// ---- 留言咨询（线程化：异步提交，运营后台回复后展示在同一列表，含未读回复角标） ----
+const showMessagePanel = ref(false)         // 留言弹层展开
+const myMessages = ref<any[]>([])           // 我的留言+运营回复
+let messagesLoaded = false                  // 是否已加载过留言（避免每次模块渲染重复拉取）
+const unreadReplyCount = ref(0)             // 未读回复数（悬浮按钮角标）
+
+/** 留言最后已读时间存储键（按 用户 + 活动 隔离） */
+function msgLastSeenKey() {
+  // 登录用户 id 字段取自本页既有登录态取值（getUser/storage 的 ssoUser）
+  const uid = (uni.getStorageSync('ssoUser') || {}).ssoUserId || 'guest'
+  return `actMsgLastSeen:${uid}:${id}`
+}
+/** 计算未读回复数（已回复且有回复内容，且时间晚于最后已读时间） */
+function calcUnread() {
+  const lastSeen = uni.getStorageSync(msgLastSeenKey())
+  unreadReplyCount.value = myMessages.value.filter(
+    (m: any) => m.status === 'replied' && m.reply && (!lastSeen || new Date(m.repliedAt || m.createdAt).getTime() > Number(lastSeen))
+  ).length
+}
+
+/** 打开留言弹层 */
+function openMessagePanel() {
+  showMessagePanel.value = true
+  uni.setStorageSync(msgLastSeenKey(), String(Date.now()))
+  unreadReplyCount.value = 0
+  loadMyMessages()
+}
+/** 加载我的留言+回复（需登录，未登录静默跳过） */
+async function loadMyMessages() {
+  if (!id) return
+  try {
+    const res = await listMyActivityMessages(id)
+    myMessages.value = Array.isArray(res) ? res : (res?.data || [])
+    messagesLoaded = true
+    calcUnread()
+  } catch { /* 游客/未配置不展示，静默 */ }
+}
+/** 提交留言（由 MessageDialog 传入内容） */
+async function submitActivityMessage(content: string) {
+  const c = (content || '').trim()
+  if (!c) { uni.showToast({ title: '请输入留言内容', icon: 'none' }); return }
+  try {
+    await sendActivityMessage(id, c)
+    uni.showToast({ title: '留言已提交，运营将尽快回复', icon: 'none' })
+    uni.setStorageSync(msgLastSeenKey(), String(Date.now()))
+    unreadReplyCount.value = 0
+    await loadMyMessages()
+  } catch (e: any) {
+    uni.showToast({ title: e?.message || '提交失败', icon: 'none' })
+    throw e
+  }
+}
 
 /** 报名后拉取解锁状态并回填卡片区 */
 const notifiedRewards = ref(new Set<string>()) // 已提示过解锁的权益 id，避免重复弹
@@ -1320,7 +1407,7 @@ const usedCapacity = computed(() => activity.value?.usedCapacity ?? 0)
 // ===== 宣传模块渲染 =====
 const PROMO_TYPE_SET = new Set([
   'cover', 'info', 'rich', 'highlights', 'speakers', 'agenda', 'images', 'faq', 'custom',
-  'rewards', 'contact', 'message',
+  'rewards', 'contact', 'message', 'floatContact',
 ])
 const modules = computed(() =>
   (Array.isArray(activity.value?.promoModules) ? activity.value.promoModules : [])
@@ -1348,7 +1435,10 @@ const colorVars = computed(() => {
   return vars
 })
 
-/** 联系方式/留言模块交互：wechat=复制微信号 / phone=拨打电话 / card=名片 / message=在线留言 */
+/** 联系方式/留言模块交互：wechat=弹二维码（微信长按/浏览器扫码或复制）/ phone=拨打电话 / card=名片 / message=在线留言 */
+const showWechatQr = ref(false)              // 微信二维码弹层展开
+const wechatQrcode = computed(() => resolveMediaUrl(activity.value?.promoContact?.wechat?.qrcode))
+const wechatId = computed(() => activity.value?.promoContact?.wechat?.id || '')
 function onPromoContact(type: 'wechat' | 'phone' | 'card' | 'message') {
   const c = activity.value?.promoContact || {}
   if (type === 'phone') {
@@ -1356,18 +1446,17 @@ function onPromoContact(type: 'wechat' | 'phone' | 'card' | 'message') {
     if (phone) uni.makePhoneCall({ phoneNumber: String(phone) })
     else uni.showToast({ title: '暂无联系电话', icon: 'none' })
   } else if (type === 'wechat') {
-    const wechat = c.wechat?.id
-    if (wechat) {
-      uni.setClipboardData({ data: wechat, success: () => uni.showToast({ title: '微信号已复制', icon: 'success' }) })
-    } else {
-      uni.showToast({ title: '暂无微信', icon: 'none' })
+    if (!wechatQrcode.value && !wechatId.value) {
+      uni.showToast({ title: '暂无微信联系方式', icon: 'none' })
+      return
     }
+    showWechatQr.value = true
   } else if (type === 'card') {
     const card = c.card
     const text = [card?.name, card?.title, card?.company, card?.phone, card?.wechat ? `微信：${card.wechat}` : ''].filter(Boolean).join(' · ')
     uni.showToast({ title: text || '暂无名片', icon: 'none' })
   } else {
-    uni.showToast({ title: '如需咨询请使用页内联系方式', icon: 'none' })
+    openMessagePanel()
   }
 }
 
@@ -1448,6 +1537,7 @@ async function loadActivity() {
   loadReviews()
   if (activity.value?.status === 'ended' || signedUp.value) loadLearning()
   if (activity.value?.status === 'ended') loadRelated()
+  loadMyMessages() // 进入页面即加载我的留言+运营回复
 }
 
 /** 微信授权回调返回后，自动从上次暂停的引导步骤继续（无需用户再次点报名） */
@@ -2366,6 +2456,22 @@ onUnmounted(() => {
 .textarea-placeholder {
   color: #bbb;
 }
+.message-form-hint {
+  display: block;
+  color: #999;
+  font-size: 24rpx;
+  margin-bottom: 24rpx;
+}
+.message-textarea {
+  width: 100%;
+  height: 220rpx;
+  background: #f5f5f5;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+  font-size: 26rpx;
+  margin-bottom: 30rpx;
+}
 .review-actions {
   display: flex;
   gap: 20rpx;
@@ -2386,6 +2492,11 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
 }
+
+/* 悬浮留言按钮 + 未读回复角标 */
+.msg-float-btn { position: fixed; left: 28rpx; bottom: 120rpx; z-index: 60; width: 108rpx; height: 108rpx; border-radius: 50%; background: var(--c-primary,#07c160); color:#fff; display:flex; align-items:center; justify-content:center; box-shadow:0 6rpx 18rpx rgba(0,0,0,.2); }
+.msg-float-icon { font-size: 40rpx; }
+.msg-float-badge { position:absolute; top:-4rpx; right:-4rpx; min-width:34rpx; height:34rpx; line-height:34rpx; padding:0 8rpx; border-radius:18rpx; background:#ff4d4f; color:#fff; font-size:22rpx; text-align:center; }
 
 .signup-mask { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; display: flex; align-items: flex-end; justify-content: center; }
 .signup-panel { width: 100%; max-height: 78vh; overflow-y: auto; background: #fff; border-radius: 24rpx 24rpx 0 0; padding: 32rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); }
