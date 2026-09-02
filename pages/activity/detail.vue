@@ -47,8 +47,18 @@
 
       <!-- 宣传文案：完全定制优先，否则回退运营端 promoModules 模块组合 -->
       <!-- 完全定制不套用运营端主题 promoClass/--c-* 变量，呈现层完全由客户 HTML 决定，不受限 -->
-      <view v-if="customPromoHtml && customPromoActive" class="promo-custom-wrap">
+      <view v-if="customPromoHtml && customPromoActive" class="promo-custom-wrap" :style="customModeStyle">
         <PromoCustomPage :activity="activity" />
+        <!-- 完全定制页同样提供悬浮联系方式（电话/微信客服）+ 默认悬浮留言按钮（和 AI 模块模式一致，带未读角标） -->
+        <FloatContact
+          :contact="activity.promoContact"
+          :in-wechat="isWxEnv"
+          :show-message="true"
+          :message-badge="unreadReplyCount"
+          @call-phone="onPromoContact('phone')"
+          @open-wechat="onPromoContact('wechat')"
+          @open-message="onPromoContact('message')"
+        />
       </view>
       <view v-else-if="modules.length" class="promo-page promo-section" :class="promoClass" :style="colorVars">
         <block v-for="m in modules" :key="m.sort">
@@ -648,8 +658,9 @@ const isFull = computed(() => {
 })
 const qrcodeUrl = ref('')
 const showSharePoster = ref(false)
-// 分享领分状态：距离上次成功 >= 冷却分钟后点亮，成功即置灰进入下一轮冷却；跨日不自动解锁
-const { state: shareClaim, refresh: refreshShare, claim: claimShare } = useShareClaim(() => id)
+// 分享领分状态：成功判定=好友点击、冷却从首击起算、按活动维度（activity:{documentId}）核算；置灰时提示
+const { state: shareClaim, refresh: refreshShare, claim: claimShare } =
+  useShareClaim(() => ({ dimType: 'activity', dimId: activity.value?.documentId || id }))
 const shareCanClaim = computed(() => shareClaim.value.canClaim)
 const sharePoints = computed(() => shareClaim.value.points)
 const shareReason = computed(() => shareReasonText(shareClaim.value))
@@ -1432,6 +1443,12 @@ const colorVars = computed(() => {
   if (c.card) vars['--c-card'] = c.card
   if (c.text) vars['--c-text'] = c.text
   if (c.textDim) vars['--c-text-dim'] = c.textDim
+  return vars
+})
+// 完全定制页的悬浮联系方式独立着色：优先活动配色，缺省给默认主色（--c-primary），不受客户 HTML 样式影响
+const customModeStyle = computed(() => {
+  const vars = colorVars.value ? { ...colorVars.value } : {}
+  if (!vars['--c-primary']) vars['--c-primary'] = '#4f46e5'
   return vars
 })
 

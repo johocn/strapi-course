@@ -233,27 +233,6 @@ function buildShareLink(linkType?: string, linkTargetId?: string): string {
   return href
 }
 
-// 已上报去重的 attemptId 本地缓存（H5 localStorage / 通用 storage）
-const SHARE_VISIT_KEY = 'share_visit_reported_attempts'
-function getReportedAttempts(): Set<string> {
-  try {
-    const raw = uni.getStorageSync(SHARE_VISIT_KEY)
-    const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw ? raw.split(',') : [])
-    return new Set(arr)
-  } catch (e) {
-    return new Set()
-  }
-}
-function markReportedAttempt(attemptId: string): void {
-  try {
-    const set = getReportedAttempts()
-    set.add(attemptId)
-    uni.setStorageSync(SHARE_VISIT_KEY, Array.from(set))
-  } catch (e) {
-    /* 忽略缓存失败 */
-  }
-}
-
 /** 从当前 H5 hash 路由解析分享落地页的 targetType / targetId；非落地页返回 null */
 function resolveShareTargetFromPath(path: string, params: URLSearchParams): { targetType: string; targetId?: string } | null {
   if (path.startsWith('/pages/course-detail/course-detail')) {
@@ -268,8 +247,10 @@ function resolveShareTargetFromPath(path: string, params: URLSearchParams): { ta
 
 /**
  * H5 启动时上报分享裂变归因（公开接口，无需登录）。
- * 从 URL（search + hash query）读取 inviteCode/inviterId；仅当当前 URL 属于分享落地页且带邀请参数时上报，
- * 并对同一 attemptId 本地缓存去重，避免回车/刷新重复上报造成噪音。
+ * 从 URL（search + hash query）读取 inviteCode/inviterId；仅当当前 URL 属于分享落地页且带邀请参数时上报。
+ * 每次点击各记一条（不做本地去重），冷却/核算以后端 visit 链路为准。
+ * 分享链接额外带 taskId 时归位为 task 维度（targetType=task、targetId=taskId），
+ * 否则按落地页 resolved.targetType（如 activity）归位。
  * 调用方需在 App.vue onLaunch 中、handleInviteLink() 清除 URL 参数之前调用。
  */
 function reportShareVisitFromLaunch(): void {
@@ -295,22 +276,21 @@ function reportShareVisitFromLaunch(): void {
   const resolved = resolveShareTargetFromPath(path, hashParams)
   if (!resolved) return
 
-  // 优先读 resolved 落地页参数；分享链接本身落在 targetId 参数键上，未命中再用 urlParams 兜底
-  const targetId = resolved.targetId || urlParams.get('courseId') || urlParams.get('id') || undefined
-  const attemptId = `${inviterId || inviteCode || 'x'}_${resolved.targetType}_${targetId || ''}`
+  // 任务分享链接：带 taskId 则归位 task 维度；否则按落地页 targetType（如 activity）
+  const taskId = pick('taskId', 'taskid', 'task_id')
 
-  if (getReportedAttempts().has(attemptId)) return
+  // 优先读 resolved 落地页参数；分享链接本身落在 targetId 参数键上，未命中再用 urlParams 兜底
+  const fallbackTargetId = urlParams.get('courseId') || urlParams.get('id') || undefined
+  const targetType = taskId ? 'task' : resolved.targetType
+  const targetId = taskId || resolved.targetId || fallbackTargetId
 
   reportShareVisit({
     inviterId: inviterId || undefined,
     inviteCode: inviteCode || undefined,
-    targetType: resolved.targetType,
+    targetType,
     targetId,
-    attemptId,
-  }).then(() => {
-    markReportedAttempt(attemptId)
   }).catch((e) => {
-    // 上报失败不阻断；不写入缓存，下次启动重试
+    // 上报失败不阻断；下次启动会再次上报
     console.warn('[share-visit] 归因上报失败', e)
   })
   // #endif

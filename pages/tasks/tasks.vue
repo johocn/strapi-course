@@ -24,7 +24,7 @@
           </view>
           <view class="task-status">
             <view class="status-done" v-if="task.isCompleted">已完成</view>
-            <view class="status-todo" v-else-if="task.action === 'activity_share' && !task.isCompleted" :class="{ disabled: !shareCanClaim }" @click="openShareGuide(task)">去分享</view>
+            <view class="status-todo" v-else-if="task.action === 'activity_share' && !task.isCompleted" @click="openShareGuide(task)">去分享</view>
             <view class="status-progress" v-else-if="task.limitPerDay > 0 && task.todayCount > 0">
               {{ task.todayCount }}/{{ task.limitPerDay }}
             </view>
@@ -43,6 +43,7 @@
       :link-type="currentShareTask?.linkType"
       :link-target-id="currentShareTask?.linkTargetId"
       :link-title="currentShareTask?.linkTitle"
+      :task-id="currentShareTask?.taskId"
       @update:visible="v => showShareGuide = v"
       @claimed="onShareClaimed"
       @goto="onShareGoto"
@@ -51,19 +52,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { getPointTasks } from '../../services/api'
 import { setupPageShare } from '../../utils/share'
 import ShareGuide from '../../components/share-guide/share-guide.vue'
-import { useShareClaim } from '../../utils/use-share-claim'
 
 const taskGroups = ref<Record<string, any[]>>({})
 const showShareGuide = ref(false)
 const currentShareTask = ref<any>(null)
-
-const { state: shareClaim, refresh: refreshShare } = useShareClaim()
-const shareCanClaim = computed(() => shareClaim.value.canClaim)
 
 const groupLabels: Record<string, string> = {
   daily: '每日签到',
@@ -98,21 +95,10 @@ onMounted(() => {
 
 onShow(() => {
   loadTasks()
-  refreshShare()
 })
 
 function openShareGuide(task: any) {
-  if (!shareCanClaim.value) {
-    const s = shareClaim.value
-    if (s.dailyLimit > 0 && s.dailyCount >= s.dailyLimit) {
-      uni.showToast({ title: '今日分享积分次数已达上限', icon: 'none' })
-    } else {
-      const min = Math.ceil(s.remainingMs / 60000)
-      if (min > 0) uni.showToast({ title: `距下次可领取约 ${min} 分钟`, icon: 'none' })
-      else uni.showToast({ title: '登录后可领取', icon: 'none' })
-    }
-    return
-  }
+  // 分享维度（好友点击/冷却/每日上限）由 ShareGuide 按 taskId 维度实时裁决，这里直接打开
   currentShareTask.value = task
   showShareGuide.value = true
 }

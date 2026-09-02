@@ -20,7 +20,7 @@
       <view class="sg-actions">
         <view class="sg-btn cancel" @click="close">取消</view>
         <view class="sg-btn submit" :class="{ disabled: !canClaim }" @click="doClaim">
-          <text>{{ canClaim ? '我已分享 · 领取积分' : '未到领取时间' }}</text>
+          <text>{{ canClaim ? '领取分享积分' : '未到领取时间' }}</text>
         </view>
       </view>
       <view v-if="!canClaim && reasonText" class="sg-reason"><text>{{ reasonText }}</text></view>
@@ -38,6 +38,7 @@ const props = defineProps<{
   linkType?: string
   linkTargetId?: string
   linkTitle?: string
+  taskId?: string | number
 }>()
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
@@ -46,7 +47,9 @@ const emit = defineEmits<{
 }>()
 const claiming = ref(false)
 
-const { state: claim, refresh: refreshClaim, claim: claimShare } = useShareClaim()
+// 任务分享落地：按任务维度（task:{taskId}）核算好友点击/冷却/每日上限；无任务维度时不传
+const { state: claim, refresh: refreshClaim, claim: claimShare } =
+  useShareClaim(() => (props.taskId != null ? { dimType: 'task', dimId: props.taskId } : undefined))
 const canClaim = computed(() => claim.value.canClaim)
 const ruleText = computed(() => shareRuleText(claim.value))
 const reasonText = computed(() => shareReasonText(claim.value))
@@ -61,18 +64,18 @@ watch(() => props.visible, (v) => { if (v) refreshClaim() })
 function close() { emit('update:visible', false) }
 
 function copyLink() {
-  const link = buildShareLink(props.linkType, props.linkTargetId)
+  let link = buildShareLink(props.linkType, props.linkTargetId)
   if (!link) {
     uni.showToast({ title: '该任务暂无可复制的分享链接', icon: 'none' })
     return
   }
+  // 任务分享链接追加 taskId，好友点击落地后归 task 维度核算
+  if (props.taskId != null) {
+    link += (link.includes('?') ? '&' : '?') + `taskId=${props.taskId}`
+  }
   uni.setClipboardData({
     data: link,
-    success: () => {
-      uni.showToast({ title: '分享链接已复制', icon: 'none' })
-      // 复制成功即视为一次“转发完成”，触发领分（未点亮则不误领）
-      doClaim()
-    },
+    success: () => uni.showToast({ title: '分享链接已复制', icon: 'none' }),
     fail: () => uni.showToast({ title: '复制失败，请重试', icon: 'none' }),
   })
 }

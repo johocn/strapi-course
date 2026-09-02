@@ -55,7 +55,7 @@ const timeText = computed(() => {
   return start || end
 })
 
-const venueName = computed(() => props.activity?.venueName || '')
+const venueName = computed(() => props.activity?.venue?.name || props.activity?.venueName || '')
 
 const quotaText = computed(() => {
   const a = props.activity

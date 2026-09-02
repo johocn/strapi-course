@@ -7,7 +7,7 @@
       <text v-else class="contact-icon">💬</text>
       <view class="contact-body">
         <text class="contact-label">微信</text>
-        <text class="contact-value">{{ contact.wechat.id || '点击查看二维码' }}</text>
+        <text class="contact-value">点击查看二维码</text>
       </view>
       <text class="contact-arrow">›</text>
     </view>
@@ -16,7 +16,7 @@
       <text class="contact-icon">📞</text>
       <view class="contact-body">
         <text class="contact-label">电话</text>
-        <text class="contact-value">{{ contact.phone }}</text>
+        <text class="contact-value">点击拨打电话</text>
       </view>
       <text class="contact-arrow">›</text>
     </view>
@@ -33,10 +33,6 @@
     </view>
 
     <text v-if="contact?.notice" class="contact-notice">{{ contact.notice }}</text>
-
-    <view class="contact-actions">
-      <view class="promo-btn-primary contact-btn" @click="emit('open-message')">在线留言</view>
-    </view>
   </view>
 </template>
 

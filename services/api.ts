@@ -676,23 +676,37 @@ export async function getPointStatistics() {
   return res?.data ?? res
 }
 
-// 领取分享活动积分（每次 5 分、30 分钟一次、每日上限 4 次；超限抛错）
-export async function claimActivityShare(payload: { action?: string; channelId?: string | number; activityId?: string | number } = {}) {
+// 领取分享活动积分（好友点击成功 + 冷却 30 分钟后可领、每日上限 4 次、按活动/任务维度核算；超限抛错）
+export async function claimActivityShare(payload: { action?: string; channelId?: string | number; dimType?: string; dimId?: string | number; activityId?: string | number } = {}) {
+  const data: Record<string, any> = {
+    action: payload.action || 'activity_share',
+  }
+  const dimType = payload.dimType || (payload.activityId != null ? 'activity' : undefined)
+  const dimId = payload.dimId != null ? payload.dimId : (payload.activityId ?? undefined)
+  if (dimType) data.dimType = dimType
+  if (dimId != null) data.dimId = dimId
+  if (payload.channelId != null) data.channelId = payload.channelId
+  if (payload.activityId != null) data.activityId = payload.activityId
   const res = await request('/zhao-point/v1/my/point/earn/share', {
     method: 'POST',
-    data: {
-      action: payload.action || 'activity_share',
-      source: 'activity',
-      ...(payload.channelId != null ? { channelId: payload.channelId } : {}),
-      ...(payload.activityId != null ? { activityId: payload.activityId } : {}),
-    },
+    data,
   })
   return res?.data ?? res
 }
 
-// 查询分享领分状态（canClaim/points/remainingMs/每日次数），用于任务中心/活动页按钮点亮与置灰
-export async function getShareClaimStatus(activityId?: string) {
-  const q = activityId ? `?` + new URLSearchParams({ activityId }).toString() : ''
+// 查询分享领分状态（canClaim/points/remainingMs/每日次数/waitClick），用于任务中心/活动页按钮点亮与置灰；按维度查询
+export async function getShareClaimStatus(opts?: { dimType?: string; dimId?: string | number; activityId?: string } | string) {
+  const p: Record<string, string> = {}
+  if (typeof opts === 'string') {
+    p.activityId = opts
+  } else {
+    const o = opts || {}
+    const dimType = o.dimType || (o.activityId ? 'activity' : undefined)
+    const dimId = o.dimId != null ? String(o.dimId) : (o.activityId ?? undefined)
+    if (dimType) p.dimType = dimType
+    if (dimId != null) p.dimId = dimId
+  }
+  const q = Object.keys(p).length ? '?' + new URLSearchParams(p).toString() : ''
   const res = await request(`/zhao-point/v1/my/point/share/status${q}`, { method: 'GET' })
   return res?.data ?? res
 }
@@ -703,22 +717,20 @@ export async function getTempLessonAuthStatus(lessonDocumentId: string) {
 }
 /**
  * 分享裂变归因上报（公开接口，无需登录）
- * 访客通过分享链接进入落地页时上报，用于 friend 点击归因。
- * @payload { inviterId?, inviteCode?, targetType?, targetId?, attemptId? }
+ * 访客通过分享链接进入落地页时上报，用于 friend 点击归因（每次点击各记一条，冷却以首次点击为基准）。
+ * @payload { inviterId?, inviteCode?, targetType?, targetId? }  targetType: activity | task | course | article
  */
 export async function reportShareVisit(payload: {
   inviterId?: string | number
   inviteCode?: string
   targetType?: string
   targetId?: string | number
-  attemptId?: string
 }) {
   const data: Record<string, any> = {}
   if (payload.inviterId != null) data.inviterId = payload.inviterId
   if (payload.inviteCode) data.inviteCode = payload.inviteCode
   if (payload.targetType) data.targetType = payload.targetType
   if (payload.targetId != null) data.targetId = payload.targetId
-  if (payload.attemptId) data.attemptId = payload.attemptId
   return request('/v1/my/point/share/visit', {
     method: 'POST',
     data,

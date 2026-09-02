@@ -24,9 +24,17 @@
           @open-card="openCard"
           @open-message="openMessagePanel"
         />
-        <PromoMessage v-else-if="m.type === 'message'" :messages="messages" @open-message="openMessagePanel" />
+        <PromoMessage v-else-if="m.type === 'message'" :messages="messages" :config="m.config" @open-message="openMessagePanel" />
         <PromoFaq v-else-if="m.type === 'faq'" :activity="page.activity" :config="m.config" />
         <PromoCustom v-else-if="m.type === 'custom'" :activity="page.activity" :config="m.config" />
+        <FloatContact
+          v-else-if="m.type === 'floatContact'"
+          :contact="page.contact"
+          :in-wechat="inWechat"
+          @call-phone="callPhone"
+          @open-wechat="openWechat"
+          @open-message="openMessagePanel"
+        />
       </block>
     </block>
 
@@ -162,18 +170,13 @@
       </view>
     </view>
 
-    <!-- 微信二维码弹层 -->
-    <view class="signup-mask" v-if="showWechat" @click="showWechat = false">
-      <view class="signup-panel wechat-panel" @click.stop>
-        <text class="signup-title">添加微信</text>
-        <image v-if="wechatQrcode" :src="wechatQrcode" class="wechat-qrcode" mode="aspectFit" />
-        <text v-else class="wechat-empty">未配置微信二维码</text>
-        <view class="guide-actions">
-          <view class="signup-btn cancel" @click="showWechat = false"><text>取消</text></view>
-          <view v-if="wechatId" class="signup-btn submit" @click="copyWechat"><text>复制微信号</text></view>
-        </view>
-      </view>
-    </view>
+    <!-- 微信二维码弹层（微信长按识别 / 浏览器扫码或复制） -->
+    <QrContactPopup
+      v-model:visible="showWechat"
+      :qrcode="wechatQrcode"
+      :wechat-id="wechatId"
+      :in-wechat="inWechat"
+    />
 
     <!-- 名片弹层 -->
     <view class="signup-mask" v-if="showCard" @click="showCard = false">
@@ -204,12 +207,23 @@
       <view class="signup-panel message-panel" @click.stop>
         <text class="signup-title">在线留言</text>
         <scroll-view scroll-y class="message-scroll">
-          <view v-for="(m, index) in messages" :key="index" class="message-item">
+          <view v-for="(m, index) in messages" :key="m.id ?? index" class="message-item">
+            <view class="msg-title-row">
+              <text class="msg-no">#{{ index + 1 }}</text>
+              <text class="msg-q">问</text>
+              <text class="msg-user">{{ m.nickname || '游客' }}</text>
+              <text class="msg-time">{{ formatTime(m.createdAt) }}</text>
+            </view>
             <text class="msg-content">{{ m.content }}</text>
             <view v-if="m.status === 'replied' && m.reply" class="msg-reply-box">
+              <view class="msg-title-row">
+                <text class="msg-no">&nbsp;</text>
+                <text class="msg-a">答</text>
+                <text class="msg-user msg-user--admin">管理员</text>
+                <text class="msg-time">{{ formatTime(m.repliedAt || m.createdAt) }}</text>
+              </view>
               <text class="msg-reply">{{ m.reply }}</text>
             </view>
-            <text class="msg-time">{{ formatTime(m.createdAt) }}</text>
           </view>
           <view v-if="!messages.length" class="message-empty">暂无留言</view>
         </scroll-view>
@@ -255,6 +269,8 @@ import PromoContact from '../../components/promo/promo-contact.vue'
 import PromoMessage from '../../components/promo/promo-message.vue'
 import PromoFaq from '../../components/promo/promo-faq.vue'
 import PromoCustom from '../../components/promo/promo-custom.vue'
+import FloatContact from '../../components/promo/float-contact.vue'
+import QrContactPopup from '../../components/promo/qr-contact-popup.vue'
 import { setupPageShare } from '../../utils/share'
 
 /** 可渲染模块类型白名单（未知 type 不渲染） */
@@ -271,6 +287,7 @@ const PROMO_TYPE_SET = new Set([
   'message',
   'faq',
   'custom',
+  'floatContact',
 ])
 
 // 报名引导存储键（与 detail.vue 一致，微信授权跳转回调后恢复引导进度）
@@ -914,10 +931,17 @@ onShareTimeline(() => ({
 .message-panel { display: flex; flex-direction: column; height: 60vh; }
 .message-scroll { flex: 1; overflow: hidden; }
 .message-item { padding: 16rpx 0; border-bottom: 1rpx solid #f5f5f5; }
-.msg-content { display: block; font-size: 27rpx; color: #333; line-height: 1.6; }
+.msg-title-row { display: flex; align-items: center; gap: 10rpx; }
+.msg-no { font-size: 22rpx; color: #999; }
+.msg-q, .msg-a { flex-shrink: 0; min-width: 40rpx; padding: 2rpx 10rpx; border-radius: 8rpx; font-size: 22rpx; text-align: center; }
+.msg-q { background: rgba(64, 158, 255, 0.12); color: #409eff; }
+.msg-a { background: rgba(7, 193, 96, 0.14); color: #07c160; }
+.msg-user { font-size: 24rpx; color: #333; font-weight: 600; }
+.msg-user--admin { color: #07c160; }
+.msg-content { display: block; margin-top: 6rpx; font-size: 27rpx; color: #333; line-height: 1.6; }
 .msg-reply-box { margin-top: 10rpx; padding: 12rpx 16rpx; border-radius: 12rpx; background: #f6f6f6; }
-.msg-reply { display: block; font-size: 25rpx; color: #667eea; line-height: 1.6; }
-.msg-time { display: block; margin-top: 8rpx; font-size: 22rpx; color: #999; }
+.msg-reply { display: block; margin-top: 6rpx; font-size: 25rpx; color: #667eea; line-height: 1.6; }
+.msg-time { margin-left: auto; font-size: 22rpx; color: #999; }
 .message-empty { padding: 60rpx 0; text-align: center; font-size: 26rpx; color: #999; }
 .message-input-row { display: flex; align-items: center; gap: 16rpx; margin-top: 20rpx; }
 .message-input { flex: 1; border: 1rpx solid #e5e5e5; border-radius: 40rpx; padding: 18rpx 24rpx; font-size: 28rpx; }
