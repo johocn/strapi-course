@@ -1,6 +1,6 @@
 // API 接口定义 - 后端统一返回 { data, meta } 格式
 import { getToken, removeToken, removeUser, setPoints } from '../utils/storage'
-import { BASE_API, SITE_DOMAIN } from '../utils/env'
+import { BASE_API, SITE_DOMAIN, isWechatBrowser } from '../utils/env'
 import { getStoredAuthConfig } from './auth-config'
 import { shouldUseSso, buildSsoRedirectUrl } from '../utils/login-chain'
 import {
@@ -50,6 +50,35 @@ function isPublicRoute(url: string): boolean {
   return PUBLIC_ROUTES.some(route => url.startsWith(route))
 }
 
+/**
+ * 是否为 SSO 登录模式（SSO 皮肤/站点走 zhao-sso 统一登录，SSO 接口 401 才是真登出）。
+ */
+function ssoLoginMode(): boolean {
+  try {
+    const cfg = getStoredAuthConfig()
+    return !!(cfg && shouldUseSso(cfg))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 业务性 401：这些接口的 401 不代表"登录失效"，而是特定登录体系/权限不匹配，
+ * 不应触发静默重授权或清 token 踢登录页，否则会形成死循环。
+ *
+ * 根因：zhao-sso 是独立的统一登录体系，其 `/v1/*` 接口只认 SSO 专用 ssoUser JWT；
+ * 而本站在 third（公众号）模式下登录返回的是 zhao-third JWT，对已登录 C 端用户的
+ * 所有 zhao-sso 用户系接口（my/notices 通知、recommend 猜你喜欢等）都恒定 401。
+ * 前端把它当登出 → 反复微信授权死循环。
+ * 判定口径：非 SSO 登录模式下，zhao-sso 系接口的 401 属业务性失败，按业务降级（隐藏/置空），
+ * 不触发登出；SSO 登录模式下这些 401 才是真正的登录失效，仍需正常处理。
+ */
+function isNonFatalAuthUrl(url: string): boolean {
+  // 非 SSO 登录模式下，SSO 系接口（通知/推荐等）对 third 用户恒 401 → 按业务降级
+  if (url.startsWith('/zhao-sso/') && !ssoLoginMode()) return true
+  return false
+}
+
 let isHandlingUnauthorized = false
 
 /** H5 当前 hash 路径（不含 query）；非 H5 返回空串 */
@@ -58,10 +87,97 @@ function currentH5Path(): string {
   return (window.location.hash || '').replace(/^#/, '').split('?')[0] || ''
 }
 
+/**
+ * H5 微信三方模式下登录态失效时的静默重授权续期。
+ * 三方登录不签发 refresh_token，token 过期后端只认 401，无法走刷新接口；
+ * 这里直接重新发起 snsapi_base 静默授权，让后端换发新 token 回跳 auth-callback 续期，
+ * 避免"反复踢回登录页再反复授权"的死循环。
+ * @returns 是否发起了重授权跳转
+ */
+function silentReauthWechat(): boolean {
+  // 仅在 H5 微信浏览器内生效
+  if (typeof window === 'undefined' || !isWechatBrowser()) return false
+
+  let cfg: any = null
+  try {
+    cfg = getStoredAuthConfig()
+  } catch {
+    cfg = null
+  }
+  // 若已配置 SSO，走上面的 SSO 分支，不在此静默授权
+  if (cfg && shouldUseSso(cfg)) return false
+  // 仅三方模式自动静默续期，非三方模式不接管
+  if (!cfg || cfg.mode !== 'third') return false
+
+  // 防死循环：连续静默续期超过 2 次则退回登录页，交由登录页的自动授权逻辑接管
+  const retryKey = 'h5SilentReauthCount'
+  const retries = Number(uni.getStorageSync(retryKey) || 0)
+  if (retries >= 2) {
+    uni.removeStorageSync(retryKey)
+    return false
+  }
+  uni.setStorageSync(retryKey, retries + 1)
+  // auth-callback 成功后清理该计数
+  uni.setStorageSync('wxAuthAppType', 'official_account')
+
+  // 记录来源页，授权结束后回到当前页（与微信登录 state 语义一致）
+  const currentPath = currentH5Path() || '/pages/index/index'
+  const baseUrl = window.location.origin
+  const redirectUri = `${baseUrl}/api/zhao-third/v1/wechat/callback`
+  const state = encodeURIComponent(currentPath)
+
+  uni.request({
+    url: `${BASE_API}/zhao-third/v1/third/auth-url?domain=${encodeURIComponent(SITE_DOMAIN)}`,
+    method: 'POST',
+    data: {
+      platform: 'wechat',
+      appType: 'official_account',
+      redirectUrl: redirectUri,
+      scope: 'snsapi_base',
+      state,
+    },
+    success: (res: any) => {
+      const authUrl = res?.data?.authUrl || res?.data?.url
+      if (authUrl) {
+        console.log('[request] 登录态失效，微信静默重授权续期', currentPath)
+        window.location.href = authUrl
+      } else {
+        uni.removeStorageSync(retryKey)
+        uni.showToast({ title: '请先登录', icon: 'none', duration: 1500 })
+        setTimeout(() => {
+          uni.reLaunch({ url: '/pages/login/login' })
+        }, 1500)
+      }
+    },
+    fail: () => {
+      uni.removeStorageSync(retryKey)
+      uni.showToast({ title: '请先登录', icon: 'none', duration: 1500 })
+      setTimeout(() => {
+        uni.reLaunch({ url: '/pages/login/login' })
+      }, 1500)
+    },
+  })
+  return true
+}
+
+function tokenExpiredOrUnknown(): boolean {
+  const exp = Number(uni.getStorageSync('token_expires_at') || 0)
+  // 无有效期记录（旧会话/未写入）视为需要续期；有记录则按过期点判断
+  return exp === 0 || Date.now() >= exp
+}
+
 function handleUnauthorized() {
   // 授权/SSO 回调页：token 正在由回调节点写回，此时绝不弹提示或跳登录页，否则会打断回跳形成死循环
   const path = currentH5Path()
   if (path.startsWith('/pages/auth-callback/auth-callback')) return
+
+  // 微信三方模式：先尝试静默重授权续期（而非立刻清 token 踢登录页）
+  // 但仅在已有 token（会话非首次登录，属于"续期"场景）时走该分支，
+  // 首次无 token 进入（真·未登录）由登录页/自动授权逻辑接管。
+  const hadToken = !!getToken()
+  // 仅当 token 确已到期（或未记录有效期）才静默重授权；普通业务 401（如 recommend）
+  // 应在 request() 中被 isNonFatalAuthUrl 拦截，不走到这里，避免假登出死循环。
+  if (hadToken && tokenExpiredOrUnknown() && silentReauthWechat()) return
 
   removeToken()
   removeUser()
@@ -235,6 +351,11 @@ export async function request(url: string, options: any = {}) {
       !isPublicRoute(url) &&
       !url.includes('/auth/refresh')
     ) {
+      // 业务性 401（如 guess-your-like recommend，third 用户对 SSO 接口恒 401）：
+      // 仅对单个调用方失败，不代表全局登出，直接抛出由调用方按业务降级，不触发静默授权/清 token。
+      if (isNonFatalAuthUrl(url)) {
+        throw res.data
+      }
       const newToken = await refreshToken()
       if (newToken) {
         // 用新 token 重试一次
@@ -1324,4 +1445,40 @@ export const partnerApi = {
   createFollowUp: (data: any) => request(`${PARTNER}/follow-ups`, { method: 'POST', data }),
   /** 更新跟进（如标记完成 status=done） */
   updateFollowUp: (id: number | string, data: any) => request(`${PARTNER}/follow-ups/${id}`, { method: 'PUT', data }),
+}
+
+// ==================== 剧本游（本地文化旅游·沉浸剧本层） ====================
+/** 剧本主视角：剧目信息 + 当前用户进度；未报名/非剧本游由后端抛业务码 */
+export async function getTourStory(documentId: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/tour/story`, { method: 'GET' })
+  return res
+}
+/** 选择角色：幂等，可改选 */
+export async function tourChooseRole(documentId: string, role: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/tour/choose-role`, {
+    method: 'POST',
+    data: { role },
+  })
+  return res
+}
+/** 到站打卡：幂等，发站点积分 */
+export async function tourCheckinStation(documentId: string, stationOrder: number) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/tour/checkin-station`, {
+    method: 'POST',
+    data: { stationOrder },
+  })
+  return res
+}
+/** 主线谜底答题：答对发主线积分（返回 { correct, already, progress }） */
+export async function tourAnswerMain(documentId: string, answer: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/tour/answer-main`, {
+    method: 'POST',
+    data: { answer },
+  })
+  return res
+}
+/** 终章兑奖：站点集齐 + 谜底破解后发放终章积分（返回 { already, progress }） */
+export async function tourClaimFinale(documentId: string) {
+  const res = await request(`/zhao-point/v1/my/activity/${documentId}/tour/claim-finale`, { method: 'POST' })
+  return res
 }

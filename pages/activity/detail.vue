@@ -174,21 +174,19 @@
           <text class="share-entry-title">分享海报</text>
           <text class="share-entry-sub">生成专属邀请海报</text>
         </view>
+        <view class="share-entry" @click="showShareGuide = true">
+          <text class="share-entry-title">分享得积分</text>
+          <text class="share-entry-sub">好友点击可领分享积分</text>
+        </view>
+        <view v-if="activity?.tourMode" class="share-entry" @click="goTour">
+          <text class="share-entry-title">进入剧本</text>
+          <text class="share-entry-sub">沉浸式文化体验</text>
+        </view>
         <view class="invite-entry" @click="goMyInvitation">
           <text class="invite-entry-title">我的邀请</text>
           <text class="invite-entry-sub">看邀请战绩</text>
         </view>
       </view>
-      <view v-if="shareTip" class="share-tip">
-        <text>{{ shareTip }}</text>
-      </view>
-      <!-- 分享领分按钮：点亮才可领，置灰显示原因 -->
-      <view class="share-claim-row">
-        <view class="share-claim-btn" :class="{ disabled: !shareCanClaim }" @click="claimSharePoints">
-          <text>{{ shareCanClaim ? `领${sharePoints}积分` : '未到领取时间' }}</text>
-        </view>
-      </view>
-      <view v-if="!shareCanClaim && shareReason" class="share-claim-reason"><text>{{ shareReason }}</text></view>
 
       <!-- 报名成功后的到场二维码（worker_scan 模式） -->
       <view v-if="signedUp && canWorkerScan" class="card qr-card">
@@ -579,6 +577,17 @@
       :wechat-id="wechatId"
       :in-wechat="isWxEnv"
     />
+
+    <!-- 分享得积分（复用任务页同款分享引导弹窗；按活动维度核算好友点击/冷却/每日上限） -->
+    <ShareGuide
+      v-model:visible="showShareGuide"
+      dim-type="activity"
+      :dim-id="activity?.documentId || id"
+      link-type="activity"
+      :link-target-id="activity?.documentId || id"
+      :link-title="activity?.title"
+      @claimed="onShareGuideClaimed"
+    />
   </view>
 </template>
 
@@ -616,6 +625,7 @@ import { getStoredAuthConfig } from '../../services/auth-config'
 import { useShareClaim, shareReasonText } from '../../utils/use-share-claim'
 import UQRCode from 'uqrcodejs'
 import SharePoster from '../../components/share-poster/share-poster.vue'
+import ShareGuide from '../../components/share-guide/share-guide.vue'
 
 // 宣传模块（复用 promo 组件，渲染运营端保存的 promoModules）
 import PromoCover from '../../components/promo/promo-cover.vue'
@@ -658,12 +668,24 @@ const isFull = computed(() => {
 })
 const qrcodeUrl = ref('')
 const showSharePoster = ref(false)
-// 分享领分状态：成功判定=好友点击、冷却从首击起算、按活动维度（activity:{documentId}）核算；置灰时提示
+// 分享领分状态：成功判定=好友点击、冷却从首击起算、按活动维度（activity:{documentId}）核算；置灰时提示。
+// 主领取走「分享得积分」入口的 ShareGuide 弹窗；分享海报关闭时保留原有自动领分行为。
 const { state: shareClaim, refresh: refreshShare, claim: claimShare } =
   useShareClaim(() => ({ dimType: 'activity', dimId: activity.value?.documentId || id }))
 const shareCanClaim = computed(() => shareClaim.value.canClaim)
-const sharePoints = computed(() => shareClaim.value.points)
 const shareReason = computed(() => shareReasonText(shareClaim.value))
+const showShareGuide = ref(false)
+
+function onShareGuideClaimed() {
+  showShareGuide.value = false
+  refreshShare()
+}
+
+function goTour() {
+  const docId = activity?.documentId || id
+  if (!docId) return uni.showToast({ title: '活动编号缺失', icon: 'none' })
+  uni.navigateTo({ url: `/pages/activity/tour?id=${docId}` })
+}
 
 async function claimSharePoints() {
   if (!shareCanClaim.value) {
@@ -1583,13 +1605,7 @@ function setupActivityShare() {
   setupPageShare({ title: a.title, desc, imgUrl: resolveActivityCover(a) || undefined })
 }
 
-// 分享裂变：分享可得积分提示 + 我的邀请跳转
-const shareTip = ref('')
-watch(() => activity.value?.shareRewardPoints, (v: any) => {
-  const n = Number(v) || 0
-  shareTip.value = n > 0 ? `分享邀请好友报名，每成功邀请 1 人得 ${n} 积分` : ''
-}, { immediate: true })
-
+// 我的邀请跳转
 function goMyInvitation() {
   uni.navigateTo({ url: '/pages/activity/my-invitation' })
 }
@@ -2358,35 +2374,6 @@ onUnmounted(() => {
 .invite-entry-sub {
   color: rgba(255, 255, 255, 0.85);
   font-size: 22rpx;
-}
-
-.share-tip {
-  margin-bottom: 20rpx;
-  background: #fff7e6;
-  border: 1rpx solid #ffe7ba;
-  border-radius: 12rpx;
-  padding: 16rpx 24rpx;
-  font-size: 24rpx;
-  color: #d48806;
-}
-
-.share-claim-row { margin-bottom: 16rpx; }
-.share-claim-btn {
-  padding: 20rpx;
-  border-radius: 44rpx;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: #fff;
-  text-align: center;
-  font-size: 30rpx;
-  font-weight: 500;
-}
-.share-claim-btn.disabled { background: #c9c9c9; }
-.share-claim-reason {
-  margin-top: -6rpx;
-  margin-bottom: 16rpx;
-  text-align: center;
-  font-size: 24rpx;
-  color: #999;
 }
 
 .review-mask {

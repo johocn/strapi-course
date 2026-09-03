@@ -184,6 +184,12 @@
 			}
 		},
 		{
+			"path": "pages/activity/tour",
+			"style": {
+				"navigationBarTitleText": "剧本游"
+			}
+		},
+		{
 			"path": "pages/partner/customers",
 			"style": {
 				"navigationBarTitleText": "我的客户"
