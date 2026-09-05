@@ -345,8 +345,9 @@ import type { AuthConfig } from '../../services/auth-config'
 import { isWechatBrowser } from '../../utils/env'
 import { redirectToWechatAuth } from '../../utils/wx-h5-login'
 import { getQrconnectUrl as fetchQrconnectUrl, redirectToOpenPlatformAuth as doRedirectToOpenPlatformAuth } from '../../utils/wx-open-platform-login'
-import { shouldUseSso, buildSsoRedirectUrl } from '../../utils/login-chain'
+import { shouldUseSso, buildSsoPageUrl } from '../../utils/login-chain'
 import { probeHostReachable } from '../../utils/sso-probe'
+import { trackInviteFlow } from '../../utils/invite'
 // #endif
 
 // === 认证配置状态 ===
@@ -559,7 +560,19 @@ function h5WechatFullLogin() {
 // === SSO 登录跳转（携带邀请码参数；SSO 不可达连试 3 次后降级本地登录） ===
 async function redirectToSso() {
   // #ifdef H5
-  const ssoUrl = buildSsoRedirectUrl(authConfig.value)
+  // 捕获来源页作回跳 state：登录成功后回来源页（分享落地页/详情页）而非一律首页
+  const pages = getCurrentPages()
+  const prev = pages.length >= 2 ? pages[pages.length - 2] : null
+  let state = ''
+  if (prev && prev.route && !String(prev.route).includes('login')) {
+    const opts = (prev as any)?.options || {}
+    const qs = Object.keys(opts).map(k => `${k}=${encodeURIComponent(opts[k])}`).join('&')
+    state = `/${prev.route}${qs ? '?' + qs : ''}`
+  } else {
+    const redirect = (pages[pages.length - 1] as any)?.options?.redirect
+    if (redirect) state = decodeURIComponent(redirect)
+  }
+  const ssoUrl = buildSsoPageUrl(authConfig.value, 'login', state || undefined)
   if (!ssoUrl) {
     uni.showToast({ title: 'SSO 登录地址未配置', icon: 'none' })
     return
@@ -571,6 +584,15 @@ async function redirectToSso() {
     uni.showToast({ title: '统一登录暂不可用，请使用下方账号密码登录', icon: 'none' })
     return
   }
+  // 埋点：发起 SSO 登录跳转，记录当前 storage 邀请码
+  trackInviteFlow('login_start', {
+    storedCode: uni.getStorageSync('inviteCode') || '',
+    channelInviteCode: uni.getStorageSync('channelInviteCode') || '',
+    inviterId: uni.getStorageSync('inviterId') || undefined,
+    pagePath: state || '/pages/login/login',
+    loggedIn: false,
+    detail: ssoUrl,
+  })
   window.location.href = ssoUrl
   return
   // #endif

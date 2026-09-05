@@ -309,11 +309,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { getPointBalance, getInviteStats, getPointFeatureFlags, getSignInStatus, getPointStatistics, login, loginWithPassword, myNotices, updateUserProfile } from '../../services/api'
 import { getUser, setToken, setUser, setLoginState, getToken } from '../../utils/storage'
 import { onLogout, validateLogin, isGuest as checkIsGuest } from '../../utils/auth'
-import { showShareGuide } from '../../utils/invite'
+import { showShareGuide, getShareConfig, getTimelineConfig } from '../../utils/invite'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
 import SharePoster from '../../components/share-poster/share-poster.vue'
@@ -680,6 +680,17 @@ onShow(() => {
   // #ifdef H5
   setupPageShare({ title: '个人中心' })
   // #endif
+})
+
+// 微信分享（携带邀请码+邀请人）
+onShareAppMessage(() => {
+  const cfg = getShareConfig('/pages/profile/profile')
+  return { title: cfg.title, path: cfg.path, imageUrl: cfg.imageUrl }
+})
+
+onShareTimeline(() => {
+  const cfg = getTimelineConfig()
+  return { title: cfg.title, query: cfg.query, imageUrl: cfg.imageUrl }
 })
 
 onUnmounted(() => {

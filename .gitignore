@@ -7,3 +7,5 @@ unpackage/
 tests/e2e/*.png
 tests/e2e/.test_token
 tests/screenshots/
+# 构建产物不入库（shao 部署经 deploy-h5.ps1 从本地 dist 上传，无需 git 追踪；basic 插件 dist 除外）
+dist/

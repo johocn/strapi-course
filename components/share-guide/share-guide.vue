@@ -13,7 +13,7 @@
       </view>
 
       <view class="sg-actions">
-        <view class="sg-copy" v-if="props.linkType && props.linkType !== 'none' && props.linkTargetId" @click="copyLink">
+        <view class="sg-copy" v-if="canCopyShare" @click="copyLink">
           <text>📋 复制分享链接</text>
         </view>
       </view>
@@ -30,7 +30,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { buildShareLink } from '../../utils/invite'
+import { buildShareLink, buildHomeShareLink } from '../../utils/invite'
 import { useShareClaim, shareRuleText, shareReasonText } from '../../utils/use-share-claim'
 
 const props = defineProps<{
@@ -39,6 +39,9 @@ const props = defineProps<{
   linkTargetId?: string
   linkTitle?: string
   taskId?: string | number
+  /** 分享领分维度：活动页传 { dimType:'activity', dimId }；taskId 传时默认 task 维 */
+  dimType?: string
+  dimId?: string | number
 }>()
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
@@ -47,12 +50,21 @@ const emit = defineEmits<{
 }>()
 const claiming = ref(false)
 
-// 任务分享落地：按任务维度（task:{taskId}）核算好友点击/冷却/每日上限；无任务维度时不传
+// 任务分享落地：按任务维度（task:{taskId}）核算邀约落地窗口/每日上限；无任务维度时不传。
+// 活动页可显式传 dimType/dimId（activity:{documentId}）覆盖默认维。
 const { state: claim, refresh: refreshClaim, claim: claimShare } =
-  useShareClaim(() => (props.taskId != null ? { dimType: 'task', dimId: props.taskId } : undefined))
+  useShareClaim(() => {
+    if (props.dimType && props.dimId != null) return { dimType: props.dimType, dimId: props.dimId }
+    if (props.taskId != null) return { dimType: 'task', dimId: props.taskId }
+    return undefined
+  })
 const canClaim = computed(() => claim.value.canClaim)
 const ruleText = computed(() => shareRuleText(claim.value))
 const reasonText = computed(() => shareReasonText(claim.value))
+// 可复制分享条件：有具体分享目标，或是一个分享任务（taskId），后者即使未配置 linkTargetId 也能兜底分发
+const canCopyShare = computed(() =>
+  !!(props.taskId != null || (props.linkType && props.linkType !== 'none' && props.linkTargetId))
+)
 
 const channels = [
   { key: 'friend', name: '分享给好友', arrowText: '点右上角 ⋮ → 分享给好友' },
@@ -65,6 +77,10 @@ function close() { emit('update:visible', false) }
 
 function copyLink() {
   let link = buildShareLink(props.linkType, props.linkTargetId)
+  // 无具体分享目标（如 activity_share 未配置 linkTargetId）时，兜底分享首页落地页（带邀请码）
+  if (!link) {
+    link = buildHomeShareLink()
+  }
   if (!link) {
     uni.showToast({ title: '该任务暂无可复制的分享链接', icon: 'none' })
     return

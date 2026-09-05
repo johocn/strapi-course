@@ -4,7 +4,7 @@
  * 小程序端返回配置对象供 onShareAppMessage / onShareTimeline 使用
  */
 import { getStoredAuthConfig } from '../services/auth-config'
-import { getInviteCode } from './invite'
+import { getInviteCode, trackInviteFlow } from './invite'
 import { getUser } from './storage'
 import { applySeoMeta } from './seo-meta'
 
@@ -24,13 +24,18 @@ export interface ShareConfig {
 }
 
 /**
- * 将 inviteCode 参数附加到 URL（hash 路由兼容）
- * uni-app H5 使用 hash 路由，URL 格式如 http://host/#/pages/index/index?key=val
+ * 将邀请参数（inviteCode + inviterId）附加到 URL（hash 路由兼容）
+ * uni-app H5 使用 hash 路由，URL 格式如 http://host/#/pages/index/index?val
  * hash 路由的 query 参数在 # 之后，需要用 hash 单独处理
+ * @param url 待附加的目标 URL
+ * @param inviteCode 当前登录用户的邀请码（可空）
+ * @param inviterId 当前登录用户 id（可空；建分销关系时用于前端明确邀约人）
  */
-function appendInviteCode(url: string, inviteCode: string): string {
-  if (!inviteCode) return url
-
+function appendInviteParams(
+  url: string,
+  inviteCode: string,
+  inviterId: number | string | null | undefined
+): string {
   // 拆分 hash 部分
   const [origin, hash = ''] = url.split('#')
   let path = hash
@@ -44,10 +49,14 @@ function appendInviteCode(url: string, inviteCode: string): string {
   }
 
   const params = new URLSearchParams(query)
-  if (params.has('inviteCode')) return url  // 已存在不重复附加
-
-  params.set('inviteCode', inviteCode)
-  return `${origin}#${path}?${params.toString()}`
+  if (inviteCode && !params.has('inviteCode')) {
+    params.set('inviteCode', inviteCode)
+  }
+  if (inviterId != null && !params.has('inviterId')) {
+    params.set('inviterId', String(inviterId))
+  }
+  const qs = params.toString()
+  return `${origin}#${path}${qs ? '?' + qs : ''}`
 }
 
 /**
@@ -73,12 +82,23 @@ export function setupPageShare(input: PageShareInput = {}): ShareConfig | void {
   // pageUrl 优先级：页面传入 > 当前页面地址
   const pageUrl = input.pageUrl ?? window.location.href
 
-  // 仅登录用户附加邀请码
+  // 仅登录用户附加邀请参数（邀请码 + 邀请人 id）
   const user = getUser()
   let finalUrl = pageUrl
   if (user) {
     const inviteCode = getInviteCode()
-    finalUrl = appendInviteCode(pageUrl, inviteCode)
+    // 优先分享当前用户自身，避免复刻来源页的他人邀请参数而自邀
+    const inviterId = user.id
+    finalUrl = appendInviteParams(pageUrl, inviteCode, inviterId)
+    // 埋点：分享发出，记录分享链接是否带邀请码与邀请人
+    trackInviteFlow('share_sent', {
+      inviteCode: finalUrl.includes('inviteCode=') ? inviteCode : '',
+      inviterId,
+      pagePath: pageUrl,
+      targetType: 'exchange',
+      loggedIn: true,
+      detail: finalUrl.includes('inviteCode=') ? '带邀请码' : '未带邀请码',
+    })
   }
 
   const config: ShareConfig = { title, desc, imgUrl, pageUrl: finalUrl }

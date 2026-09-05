@@ -619,7 +619,7 @@ import {
 import { getToken, getUser } from '../../utils/storage'
 import { isWechatBrowser, resolveMediaUrl } from '../../utils/env'
 import { setupPageShare } from '../../utils/share'
-import { redirectToWechatAuth } from '../../utils/wx-h5-login'
+import { redirectToWechatAuth, getCurrentPagePath } from '../../utils/wx-h5-login'
 import { shouldUseSso, buildSsoPageUrl } from '../../utils/login-chain'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { useShareClaim, shareReasonText } from '../../utils/use-share-claim'
@@ -1121,7 +1121,9 @@ async function chooseAuthLogin() {
       goGuideOrSignup()
       return
     }
-    const ssoUrl = buildSsoPageUrl(authConfig, 'login')
+    // 传入当前活动页路径作为 state：SSO 登录/注册完成回 auth-callback 后 reLaunch 回本页，
+    // 由 REWARD_GUIDE_KEY 续接引导进度，而不是统一落回首页
+    const ssoUrl = buildSsoPageUrl(authConfig, 'login', getCurrentPagePath())
     if (ssoUrl) {
       // 未登录走 SSO 统一登录（SSO 即微信授权，经 h.joho.cn 中转）；完成后回 auth-callback，
       // 引导进度由 REWARD_GUIDE_KEY 续接

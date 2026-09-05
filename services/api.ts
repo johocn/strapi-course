@@ -43,7 +43,8 @@ const PUBLIC_ROUTES = [
   '/zhao-point/v1/series',            // 活动系列列表/详情（游客可看）
   '/zhao-point/v1/promo/activity',    // 活动宣传页聚合（游客可看）
   '/zhao-sso/v1/wx/qrcode',           // 公众号带参二维码（公开，供关注引导）
-  '/v1/my/point/share/visit',          // 分享裂变归因上报（公开，无需登录）
+  '/zhao-point/v1/my/point/share/visit', // 分享裂变归因上报（公开，无需登录）
+  '/zhao-website/v1/invite-flow/track', // 邀请码流转埋点（公开，无需登录）
 ]
 
 function isPublicRoute(url: string): boolean {
@@ -797,7 +798,7 @@ export async function getPointStatistics() {
   return res?.data ?? res
 }
 
-// 领取分享活动积分（好友点击成功 + 冷却 30 分钟后可领、每日上限 4 次、按活动/任务维度核算；超限抛错）
+// 领取分享积分（邀约兜底：被邀请人注册建立分销关系后 30 分钟内可领、每日上限按规则、按活动/任务维度核算；超限抛错）
 export async function claimActivityShare(payload: { action?: string; channelId?: string | number; dimType?: string; dimId?: string | number; activityId?: string | number } = {}) {
   const data: Record<string, any> = {
     action: payload.action || 'activity_share',
@@ -815,7 +816,7 @@ export async function claimActivityShare(payload: { action?: string; channelId?:
   return res?.data ?? res
 }
 
-// 查询分享领分状态（canClaim/points/remainingMs/每日次数/waitClick），用于任务中心/活动页按钮点亮与置灰；按维度查询
+// 查询分享领分状态（canClaim/points/remainingMs/hasLanding/waitLanding），用于任务中心/活动页按钮点亮与置灰；按维度查询
 export async function getShareClaimStatus(opts?: { dimType?: string; dimId?: string | number; activityId?: string } | string) {
   const p: Record<string, string> = {}
   if (typeof opts === 'string') {
@@ -852,10 +853,44 @@ export async function reportShareVisit(payload: {
   if (payload.inviteCode) data.inviteCode = payload.inviteCode
   if (payload.targetType) data.targetType = payload.targetType
   if (payload.targetId != null) data.targetId = payload.targetId
-  return request('/v1/my/point/share/visit', {
+  return request('/zhao-point/v1/my/point/share/visit', {
     method: 'POST',
     data,
   })
+}
+
+/**
+ * 邀请码流转埋点（公开，无需登录）
+ * 各环节调用方：share.ts(share_sent)、invite.ts(landing/use_invite)、
+ * login.vue(login_start)、auth-callback.vue(login_callback/redirect_back)。
+ */
+export async function trackInviteFlow(payload: {
+  event?: string
+  inviteCode?: string
+  storedCode?: string
+  channelInviteCode?: string
+  inviterId?: string | number
+  targetType?: string
+  targetId?: string | number
+  pagePath?: string
+  loggedIn?: boolean
+  success?: boolean
+  detail?: string
+  sessionId?: string
+  visitorId?: string
+  userId?: string | number
+}) {
+  const data: Record<string, any> = {}
+  for (const k of [
+    'event', 'inviteCode', 'storedCode', 'channelInviteCode', 'inviterId',
+    'targetType', 'targetId', 'pagePath', 'loggedIn', 'success', 'detail',
+    'sessionId', 'visitorId', 'userId',
+  ] as const) {
+    const v = (payload as Record<string, any>)[k]
+    if (v != null && v !== '') data[k] = v
+  }
+  if (!data.event) return
+  return request('/zhao-website/v1/invite-flow/track', { method: 'POST', data })
 }
 
 // 获取功能开关（公开，无需登录）

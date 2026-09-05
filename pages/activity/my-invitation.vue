@@ -61,11 +61,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { myInvitation } from '../../services/api'
 import { validateLogin } from '../../utils/auth'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
+import { getShareConfig, getTimelineConfig } from '../../utils/invite'
 
 const siteConfig = getStoredAuthConfig()
 const loading = ref(true)
@@ -115,6 +116,17 @@ onShow(() => {
   // #endif
   load()
   setupPageShare({ title: '我的邀请' })
+})
+
+// 微信分享（携带邀请码+邀请人）
+onShareAppMessage(() => {
+  const cfg = getShareConfig('/pages/activity/my-invitation')
+  return { title: cfg.title, path: cfg.path, imageUrl: cfg.imageUrl }
+})
+
+onShareTimeline(() => {
+  const cfg = getTimelineConfig()
+  return { title: cfg.title, query: cfg.query, imageUrl: cfg.imageUrl }
 })
 </script>
 

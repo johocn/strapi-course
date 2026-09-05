@@ -28,7 +28,7 @@
 import { ref, onMounted } from 'vue'
 import { request } from '../../services/api'
 import { setToken, setUser } from '../../utils/storage'
-import { bindInviteCodesAfterLogin } from '../../utils/invite'
+import { bindInviteCodesAfterLogin, trackInviteFlow } from '../../utils/invite'
 
 const statusText = ref('微信登录中...')
 
@@ -39,9 +39,49 @@ onMounted(async () => {
 })
 
 // #ifdef H5
+// === 登录后对齐 up_users：把 SSO 返回的真实邀请码/昵称/头像写入 C 端 up_users ===
+// SSO user 对象含 ssoId + inviteCode（真实 ownInviteCode）；仅 SSO 身份时同步；失败不影响登录。
+async function syncSsoProfileAfterLogin(userObj: any) {
+  try {
+    const ssoId = Number(userObj?.ssoId ?? userObj?.ssoUserId ?? userObj?.sso_id)
+    if (!Number.isInteger(ssoId) || ssoId <= 0) return
+    await request('/zhao-auth/v1/auth/sync-sso-profile', {
+      method: 'POST',
+      data: {
+        ssoId,
+        inviteCode: userObj?.inviteCode || userObj?.ownInviteCode || '',
+        nickname: userObj?.nickname || userObj?.name || '',
+        avatar: userObj?.avatar || userObj?.avatar_url || '',
+      },
+    })
+  } catch (e) {
+    // 对齐失败不阻断登录，下次登录/懒对齐兜底
+    console.warn('[auth-callback] syncSsoProfile 失败', e)
+  }
+}
 // === 兜底建立分销关系（SSO 路径 + third 路径共用） ===
 async function bindInviteCodesAfterCallback() {
   await bindInviteCodesAfterLogin()
+}
+
+/**
+ * 解析 JWT 的 exp 写入 token_expires_at，使 services/api.ts 的 isTokenExpiring 生效。
+ * 三方(zhao-third)登录不签发 refresh_token，无法走刷新接口提前换新，
+ * 但记录过期点后，token 过期时能按"静默重授权续期"兜底而非反复弹登录。
+ */
+function writeTokenExpiryFromJwt(token: string): void {
+  try {
+    const parts = token.split('.')
+    if (parts.length < 2) return
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    const exp = payload?.exp
+    if (typeof exp === 'number') {
+      // 提前 60 秒标记过期，触发主动续期（与 services/api.ts 的 isTokenExpiring 逻辑一致）
+      uni.setStorageSync('token_expires_at', String(exp * 1000 - 60000))
+    }
+  } catch {
+    // JWT 非法或无法解析时忽略，交由 401 兜底处理
+  }
 }
 
 async function handleOAuthCallback() {
@@ -98,22 +138,46 @@ async function handleOAuthCallback() {
       window.history.replaceState({}, '', window.location.pathname + window.location.hash.split('?')[0])
       // 兜底建立分销关系（成功才清除 inviteCode/channelInviteCode，失败保留下次再试）
       await bindInviteCodesAfterCallback()
+      // 埋点：登录回调成功（token 已保存），记录此时 storage/用户中的邀请码
+      trackInviteFlow('login_callback', {
+        storedCode: uni.getStorageSync('inviteCode') || '',
+        inviteCode: (JSON.parse(decodeURIComponent(atob(userEncoded || 'e30='))) as any)?.inviteCode || '',
+        pagePath: window.location.href,
+        loggedIn: !!token,
+        success: !!token,
+        userId: Number(userId || 0) || undefined,
+      })
+      // 登录后对齐：把 SSO 真实邀请码写入 C 端 up_users（用户对象在 setUser 前可用）
+      if (userEncoded) {
+        try {
+          const parsedUser = JSON.parse(decodeURIComponent(atob(userEncoded)))
+          await syncSsoProfileAfterLogin(parsedUser)
+        } catch {
+          // user 参数解析失败仅影响对齐，不影响登录
+        }
+      }
       // 清理无关 storage（非邀请码）
       uni.removeStorageSync('wxAuthScope')
       uni.removeStorageSync('wxAuthAppType')
       uni.removeStorageSync('h5AutoLoginAttemptedAt')
       uni.removeStorageSync('h5WechatAutoLoginRetries')
+      // 清理 401 静默重授权计数（services/api.ts silentReauthWechat）
+      uni.removeStorageSync('h5SilentReauthCount')
 
       setTimeout(() => {
         if (state) {
           try {
             const targetUrl = decodeURIComponent(state)
             if (targetUrl && targetUrl.startsWith('/') && !targetUrl.startsWith('//')) {
+              // 埋点：回跳到来源页（state 指向），判定「应回兑换页却回首页」
+              trackInviteFlow('redirect_back', { success: true, pagePath: targetUrl, loggedIn: true, detail: `reLaunch:${targetUrl}` })
               uni.reLaunch({ url: targetUrl })
               return
             }
           } catch {}
         }
+        // 埋点：无 state → 回退首页
+        trackInviteFlow('redirect_back', { success: false, pagePath: '/pages/index/index', loggedIn: true, detail: 'switchTab home' })
         uni.switchTab({ url: '/pages/index/index' })
       }, 500)
       return
@@ -149,6 +213,8 @@ async function handleOAuthCallback() {
     const callbackToken = res.jwt ?? res.token
     if (callbackToken) {
       setToken(callbackToken)
+      // 三方登录无 refresh_token：记录 JWT exp，使前端能在 token 过期时走静默重授权续期兜底
+      writeTokenExpiryFromJwt(callbackToken)
       if (res.user) setUser(res.user)
       // zhao-third 返回 isNew 标识首登用户
       if (res.isNew === true || res.is_new === true) {
@@ -170,11 +236,15 @@ async function handleOAuthCallback() {
           try {
             const targetUrl = decodeURIComponent(state)
             if (targetUrl && targetUrl.startsWith('/') && !targetUrl.startsWith('//')) {
+              // 埋点：回跳到来源页（state 指向），判定「应回兑换页却回首页」
+              trackInviteFlow('redirect_back', { success: true, pagePath: targetUrl, loggedIn: true, detail: `reLaunch:${targetUrl}` })
               uni.reLaunch({ url: targetUrl })
               return
             }
           } catch {}
         }
+        // 埋点：无 state → 回退首页
+        trackInviteFlow('redirect_back', { success: false, pagePath: '/pages/index/index', loggedIn: true, detail: 'switchTab home' })
         uni.switchTab({ url: '/pages/index/index' })
       }, 500)
     } else {

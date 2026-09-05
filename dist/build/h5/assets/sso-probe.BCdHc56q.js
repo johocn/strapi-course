@@ -1,1 +1,0 @@
-async function e(e,t=3){if("function"!=typeof fetch)return!0;let r="";try{r=new URL(e).origin}catch{return!1}for(let n=0;n<t;n++)try{return await fetch(r+"/",{mode:"no-cors",cache:"no-store",redirect:"follow"}),!0}catch(o){console.warn(`[sso-probe] 第 ${n+1}/${t} 次探测 ${r} 失败:`,o),n<t-1&&await new Promise(e=>setTimeout(e,700))}return!1}export{e as p};

@@ -3,7 +3,7 @@
  * 仅 H5 环境使用
  */
 import { request } from '../services/api'
-import { getInviteCode } from './invite'
+import { getInviteCode, trackInviteFlow } from './invite'
 import { BASE_URL, SITE_DOMAIN } from './env'
 import { getUser } from './storage'
 import { getStoredAuthConfig } from '../services/auth-config'
@@ -186,6 +186,14 @@ export function configShareWithInvite(pageShare?: PageShareConfig): void {
   if (inviteCode) params.push(`inviteCode=${inviteCode}`)
   if (userId) params.push(`inviterId=${userId}`)
   if (params.length > 0) link += `${separator}${params.join('&')}`
+
+  // [诊断] 上报分享链接真实内容，定位邀请码在哪一环丢失
+  trackInviteFlow('debug_share', {
+    inviteCode: inviteCode || '',
+    inviterId: userId != null && userId !== '' ? String(userId) : undefined,
+    pagePath: link,
+    detail: `wxReady=${jssdkReady} user=${JSON.stringify(getUser()?.id ?? null)} authMode=${getStoredAuthConfig()?.mode ?? ''}`,
+  })
 
   configShare({ title, desc, link, imgUrl })
 }

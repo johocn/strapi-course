@@ -201,6 +201,7 @@ import { validateLogin, getAuthUser, checkLogin } from '../../utils/auth'
 import { getImageUrl } from '../../utils/env'
 import { getStoredAuthConfig } from '../../services/auth-config'
 import { setupPageShare } from '../../utils/share'
+import { getShareConfig, getTimelineConfig } from '../../utils/invite'
 import { checkItemLock, isCourseCompleted } from '../../utils/sequence-lock'
 import type { Course, Tag } from '../../services/api'
 import {
@@ -723,29 +724,15 @@ function refreshData() {
   siteConfig.value = getStoredAuthConfig()
 }
 
-// 微信分享（携带邀请码）
+// 微信分享（统一通过 getShareConfig/getTimelineConfig 携带邀请码+邀请人，未登录也用临时码兜底）
 onShareAppMessage(() => {
-  const authConfig = getStoredAuthConfig()
-  const sharePath = inviteCode.value 
-    ? `/pages/index/index?inviteCode=${inviteCode.value}` 
-    : authConfig?.sharePath ?? '/pages/index/index'
-  return {
-    title: authConfig?.shareTitle ?? '圣麟教育 - 学习课程，答题赢积分',
-    path: sharePath,
-    imageUrl: authConfig?.shareImage ?? '/static/share-image.png'
-  }
+  const cfg = getShareConfig()
+  return { title: cfg.title, path: cfg.path, imageUrl: cfg.imageUrl }
 })
 
 onShareTimeline(() => {
-  const authConfig = getStoredAuthConfig()
-  const shareQuery = inviteCode.value 
-    ? `inviteCode=${inviteCode.value}` 
-    : ''
-  return {
-    title: authConfig?.shareTitle ?? '圣麟教育 - 学习课程，答题赢积分！快来一起学习吧！',
-    query: shareQuery,
-    imageUrl: authConfig?.shareImage ?? '/static/share-image.png'
-  }
+  const cfg = getTimelineConfig()
+  return { title: cfg.title, query: cfg.query, imageUrl: cfg.imageUrl }
 })
 </script>
 

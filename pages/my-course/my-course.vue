@@ -206,7 +206,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
   getMyCourseProgresses,
   getPointBalance,
@@ -217,6 +217,7 @@ import {
 import type { Enrollment, EnrollType, EnrollmentStatus } from '../../services/api'
 import { validateLogin } from '../../utils/auth'
 import { setupPageShare } from '../../utils/share'
+import { getShareConfig, getTimelineConfig } from '../../utils/invite'
 
 interface CourseItem {
   documentId: string
@@ -420,6 +421,17 @@ onMounted(() => {
 
 onShow(() => {
   if (checkLoginStatus()) loadData()
+})
+
+// 微信分享（携带邀请码+邀请人）
+onShareAppMessage(() => {
+  const cfg = getShareConfig('/pages/my-course/my-course')
+  return { title: cfg.title, path: cfg.path, imageUrl: cfg.imageUrl }
+})
+
+onShareTimeline(() => {
+  const cfg = getTimelineConfig()
+  return { title: cfg.title, query: cfg.query, imageUrl: cfg.imageUrl }
 })
 </script>
 

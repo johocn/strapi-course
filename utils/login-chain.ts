@@ -17,13 +17,17 @@ export function shouldUseSso(config: AuthConfig | null | undefined): boolean {
  * 构建 SSO 页面跳转 URL（携带 app_code / return_url / c_end_url / 邀请码）
  * H5 环境专用；非 H5 环境返回空串
  * @param page 目标 SSO 页面：'login'（登录页，默认）| 'register'（注册页）
+ * @param state 可选：登录/注册成功后应返回的 C 端页面路径（如 /pages/activity/detail?id=5）。
+ *              会内嵌到 return_url/c_end_url（auth-callback）的 query 中，SSO 端原样拼回，
+ *              auth-callback 据此 reLaunch 回来源页，避免统一落回首页。
  *
  * ssoLoginUrl 约定指向 SSO 登录页（形如 https://h.joho.cn/#/pages/sso/login），
  * C 端 return_url/c_end_url 均指向自身 auth-callback，SSO 认证完成后携带 token 回跳写入登录态。
  */
 export function buildSsoPageUrl(
   config: AuthConfig | null | undefined,
-  page: 'login' | 'register' = 'login'
+  page: 'login' | 'register' = 'login',
+  state?: string
 ): string {
   const ssoUrl = config?.ssoLoginUrl
   if (!ssoUrl) return ''
@@ -35,11 +39,14 @@ export function buildSsoPageUrl(
     if (base === ssoUrl) return ''
   }
 
-  const cEndCallback = window.location.origin + '/#/pages/auth-callback/auth-callback'
+  const cEndBase = window.location.origin + '/#/pages/auth-callback/auth-callback'
+  // state 附加到回调 URL（置于 hash query），SSO login-callback 的 redirectToTarget 会把
+  // token/user 以 & 拼接在其后，最终 auth-callback 的 hashParams 可同时取到 state 与 token
+  const callback = state ? `${cEndBase}?state=${encodeURIComponent(state)}` : cEndBase
   const params = new URLSearchParams({
     app_code: config?.ssoAppCode || 'course',
-    return_url: cEndCallback,
-    c_end_url: cEndCallback,
+    return_url: callback,
+    c_end_url: callback,
   })
   // 透传邀请码（与 register.vue 保持一致）
   const userInviteCode = uni.getStorageSync('inviteCode') || ''

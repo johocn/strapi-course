@@ -4,7 +4,32 @@
 import { getToken, getUser, setUser } from './storage'
 import { BASE_API } from './env'
 import { getStoredAuthConfig } from '../services/auth-config'
-import { useInviteCode, joinChannelByInvite, reportShareVisit } from '../services/api'
+import { useInviteCode, joinChannelByInvite, reportShareVisit, trackInviteFlow as trackInviteFlowApi } from '../services/api'
+
+/**
+ * 邀请码流转埋点：把各环节的邀请码可见状态报后端 zhao_website_invite_trace。
+ * 定位邀请码在「分享→落地→登录→回跳」哪个环节失效。失败不阻断主流程。
+ */
+let traceSid = ''
+function getTraceSessionId(): string {
+  if (!traceSid) {
+    traceSid = (uni.getStorageSync('inviteTraceSessionId') as string) || ''
+    if (!traceSid) {
+      traceSid = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      uni.setStorageSync('inviteTraceSessionId', traceSid)
+    }
+  }
+  return traceSid
+}
+export function trackInviteFlow(event: string, extra: Record<string, any> = {}): void {
+  try {
+    trackInviteFlowApi({ event, sessionId: getTraceSessionId(), ...extra }).catch((e) => {
+      console.warn('[invite-trace]', event, '埋点失败', e)
+    })
+  } catch (e) {
+    console.warn('[invite-trace]', event, '埋点异常', e)
+  }
+}
 
 // 获取用户邀请码
 function getInviteCode(): string {
@@ -46,17 +71,15 @@ function identifyInviteCode(code: string): { type: 'user' | 'channel' | 'unknown
     return { type: 'channel', code: code.replace(/^channel_|^ch_/, '') }
   }
 
-  // 用户邀请码特征：invite_、inv_ 前缀，或SL开头
+  // 用户邀请码：invite_/inv_ 前缀、SL 开头，以及后端下发的真实邀请码
+  // （如 sso_invite_codes 的 course 码、zhao_user_invites 的分享码，均为无前缀字母数字，
+  //   如 ZECR523P / 3XQ5PXZ3）。此前无前缀码被误判为「渠道码」导致分销关系建立失败，故默认归为用户码。
   if (code.startsWith('invite_') || code.startsWith('inv_')) {
     return { type: 'user', code: code.replace(/^invite_|^inv_/, '') }
   }
 
-  // 默认：SL开头的为用户邀请码，其他为渠道邀请码
-  if (code.startsWith('SL')) {
-    return { type: 'user', code }
-  }
-
-  return { type: 'channel', code }
+  // 默认：无前缀字母数字码一律视为「用户邀请码」
+  return { type: 'user', code }
 }
 
 // 存储邀请码（区分类型）
@@ -95,6 +118,13 @@ function handleInviteLink(): void {
 
   if (inviteCodeFromUrl) {
     storeInviteCode(inviteCodeFromUrl)
+    // 埋点：记录落地时 URL 里读到的邀请码原始值（清 URL 前上报）
+    trackInviteFlow('landing', {
+      inviteCode: inviteCodeFromUrl,
+      inviterId: urlParams.get('inviterId') || hashParams.get('inviterId') || undefined,
+      pagePath: window.location.href,
+      detail: '[invite] URL inviteCode 命中',
+    })
     // 清除URL参数
     const cleanUrl = window.location.pathname + window.location.hash.split('?')[0]
     window.history.replaceState({}, '', cleanUrl)
@@ -102,6 +132,13 @@ function handleInviteLink(): void {
 
   if (channelCodeFromUrl) {
     storeInviteCode(channelCodeFromUrl)
+    // 埋点：渠道邀请码落地
+    trackInviteFlow('landing', {
+      channelInviteCode: channelCodeFromUrl,
+      inviterId: urlParams.get('inviterId') || hashParams.get('inviterId') || undefined,
+      pagePath: window.location.href,
+      detail: '[invite] URL channelCode 命中',
+    })
     // 清除URL参数
     const cleanUrl = window.location.pathname + window.location.hash.split('?')[0]
     window.history.replaceState({}, '', cleanUrl)
@@ -233,6 +270,26 @@ function buildShareLink(linkType?: string, linkTargetId?: string): string {
   return href
 }
 
+/**
+ * 无具体分享目标时的兜底分享：分享首页落地页（带邀请码+邀请人），
+ * 确保「分享任务」在未配置 linkTargetId（如 activity_share 走默认规则）时也能分发。
+ */
+function buildHomeShareLink(): string {
+  const inviteCode = getInviteCode()
+  const userId = getUser()?.id
+  const params = new URLSearchParams()
+  if (inviteCode) params.set('inviteCode', inviteCode)
+  if (userId != null) params.set('inviterId', String(userId))
+  const qs = params.toString()
+  const path = `/pages/index/index${qs ? '?' + qs : ''}`
+  // #ifdef H5
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/#${path}`
+  }
+  // #endif
+  return path
+}
+
 /** 从当前 H5 hash 路由解析分享落地页的 targetType / targetId；非落地页返回 null */
 function resolveShareTargetFromPath(path: string, params: URLSearchParams): { targetType: string; targetId?: string } | null {
   if (path.startsWith('/pages/course-detail/course-detail')) {
@@ -240,6 +297,9 @@ function resolveShareTargetFromPath(path: string, params: URLSearchParams): { ta
   }
   if (path.startsWith('/pages/activity/detail')) {
     return { targetType: 'activity', targetId: params.get('id') || undefined }
+  }
+  if (path.startsWith('/pages/exchange/exchange')) {
+    return { targetType: 'exchange' }
   }
   // article 落地页兜底为首页，为避免误报不做自动归因
   return null
@@ -412,6 +472,7 @@ export {
   handleInviteLink,
   getSharePath,
   buildShareLink,
+  buildHomeShareLink,
   reportShareVisitFromLaunch,
   shareToFriend,
   shareToTimeline,
@@ -445,8 +506,10 @@ export async function bindInviteCodesAfterLogin(): Promise<void> {
       await useInviteCode(inviteCode)
       uni.removeStorageSync('inviteCode')
       console.log('[invite] 用户邀请码绑定成功:', inviteCode)
+      trackInviteFlow('use_invite', { inviteCode, storedCode: inviteCode, success: true, loggedIn: !!getUser() })
     } catch (e) {
       console.warn('[invite] 绑定用户邀请码失败，保留 storage:', e)
+      trackInviteFlow('use_invite', { inviteCode, storedCode: inviteCode, success: false, detail: (e as Error)?.message || 'useInviteCode 失败', loggedIn: !!getUser() })
     }
   }
 
@@ -456,8 +519,10 @@ export async function bindInviteCodesAfterLogin(): Promise<void> {
       await joinChannelByInvite(channelInviteCode)
       uni.removeStorageSync('channelInviteCode')
       console.log('[invite] 渠道邀请码绑定成功:', channelInviteCode)
+      trackInviteFlow('use_invite', { channelInviteCode, storedCode: channelInviteCode, success: true, detail: 'joinChannel', loggedIn: !!getUser() })
     } catch (e) {
       console.warn('[invite] 加入渠道失败，保留 storage:', e)
+      trackInviteFlow('use_invite', { channelInviteCode, storedCode: channelInviteCode, success: false, detail: (e as Error)?.message || 'joinChannel 失败', loggedIn: !!getUser() })
     }
   }
 }

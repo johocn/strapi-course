@@ -104,7 +104,7 @@ export async function handleH5WechatCallback(code: string, scope?: string): Prom
  * 必须携带当前页面的 query 参数（如 /pages/activity/detail?id=xxx），
  * 否则微信授权回调后 state 丢失 id，导致报名/权益引导流程无法续接。
  */
-function getCurrentPagePath(): string {
+export function getCurrentPagePath(): string {
   const pages = getCurrentPages()
   if (pages.length > 0) {
     const currentPage = pages[pages.length - 1] as any
